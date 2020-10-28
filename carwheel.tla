@@ -1,5 +1,7 @@
 ------------------------------ MODULE carwheel ------------------------------
 
+\* We have 5 tires each with 20k miles left. How long a car run with these tires ?
+
 EXTENDS Integers
 VARIABLES TireA, TireB, TireC, TireD, TireS, Run
 
