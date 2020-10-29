@@ -1,0 +1,178 @@
+@!@!@STARTMSG 2262:0 @!@!@
+TLC2 Version 2.15 of Day Month 20?? (rev: eb3ff99)
+@!@!@ENDMSG 2262 @!@!@
+@!@!@STARTMSG 2187:0 @!@!@
+Running breadth-first search Model-Checking with fp 74 and seed -7771091671438627178 with 6 workers on 12 cores with 2402MB heap and 5402MB offheap memory [pid: 23784] (Windows 10 10.0 amd64, AdoptOpenJDK 14.0.1 x86_64, OffHeapDiskFPSet, DiskStateQueue).
+@!@!@ENDMSG 2187 @!@!@
+@!@!@STARTMSG 2220:0 @!@!@
+Starting SANY...
+@!@!@ENDMSG 2220 @!@!@
+Parsing file C:\Users\asnegi\Documents\tla\spec2\sflogcrash.toolbox\AppendAndReadExtents\MC.tla
+Parsing file C:\Users\asnegi\Documents\tla\spec2\sflogcrash.toolbox\AppendAndReadExtents\sflogcrash.tla
+Parsing file C:\Users\asnegi\Documents\tla\TLAToolbox-1.7.0-win32.win32.x86_64\toolbox\plugins\org.lamport.tlatools_1.0.0.202004251858\tla2sany\StandardModules\TLC.tla
+Parsing file C:\Users\asnegi\Documents\tla\TLAToolbox-1.7.0-win32.win32.x86_64\toolbox\plugins\org.lamport.tlatools_1.0.0.202004251858\tla2sany\StandardModules\Integers.tla
+Parsing file C:\Users\asnegi\Documents\tla\TLAToolbox-1.7.0-win32.win32.x86_64\toolbox\plugins\org.lamport.tlatools_1.0.0.202004251858\tla2sany\StandardModules\Naturals.tla
+Parsing file C:\Users\asnegi\Documents\tla\TLAToolbox-1.7.0-win32.win32.x86_64\toolbox\plugins\org.lamport.tlatools_1.0.0.202004251858\tla2sany\StandardModules\Sequences.tla
+Parsing file C:\Users\asnegi\Documents\tla\TLAToolbox-1.7.0-win32.win32.x86_64\toolbox\plugins\org.lamport.tlatools_1.0.0.202004251858\tla2sany\StandardModules\FiniteSets.tla
+Semantic processing of module Naturals
+Semantic processing of module Integers
+Semantic processing of module sflogcrash
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module MC
+@!@!@STARTMSG 2219:0 @!@!@
+SANY finished.
+@!@!@ENDMSG 2219 @!@!@
+@!@!@STARTMSG 2185:0 @!@!@
+Starting... (2020-10-28 19:46:46)
+@!@!@ENDMSG 2185 @!@!@
+@!@!@STARTMSG 2189:0 @!@!@
+Computing initial states...
+@!@!@ENDMSG 2189 @!@!@
+@!@!@STARTMSG 2190:0 @!@!@
+Finished computing initial states: 1 distinct state generated at 2020-10-28 19:46:47.
+@!@!@ENDMSG 2190 @!@!@
+@!@!@STARTMSG 2110:1 @!@!@
+Invariant inv_160393960556640000 is violated.
+@!@!@ENDMSG 2110 @!@!@
+@!@!@STARTMSG 2121:1 @!@!@
+The behavior up to this point is:
+@!@!@ENDMSG 2121 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+1: <Initial predicate>
+/\ LSN = 0
+/\ WriteExtent = <<0, 0>>
+/\ ReadExtents = {}
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+2: <Append line 22, col 5 to line 24, col 21 of module sflogcrash>
+/\ LSN = 1
+/\ WriteExtent = <<0, 1>>
+/\ ReadExtents = {}
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+3: <Append line 22, col 5 to line 24, col 21 of module sflogcrash>
+/\ LSN = 2
+/\ WriteExtent = <<0, 2>>
+/\ ReadExtents = {}
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+4: <WriteExtentToReadExtent line 17, col 5 to line 19, col 21 of module sflogcrash>
+/\ LSN = 3
+/\ WriteExtent = <<3, 3>>
+/\ ReadExtents = {<<0, 2>>}
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+5: <Append line 22, col 5 to line 24, col 21 of module sflogcrash>
+/\ LSN = 4
+/\ WriteExtent = <<3, 4>>
+/\ ReadExtents = {<<0, 2>>}
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+6: <Append line 22, col 5 to line 24, col 21 of module sflogcrash>
+/\ LSN = 5
+/\ WriteExtent = <<3, 5>>
+/\ ReadExtents = {<<0, 2>>}
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+7: <Append line 22, col 5 to line 24, col 21 of module sflogcrash>
+/\ LSN = 6
+/\ WriteExtent = <<3, 6>>
+/\ ReadExtents = {<<0, 2>>}
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+8: <Append line 22, col 5 to line 24, col 21 of module sflogcrash>
+/\ LSN = 7
+/\ WriteExtent = <<3, 7>>
+/\ ReadExtents = {<<0, 2>>}
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+9: <Append line 22, col 5 to line 24, col 21 of module sflogcrash>
+/\ LSN = 8
+/\ WriteExtent = <<3, 8>>
+/\ ReadExtents = {<<0, 2>>}
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+10: <Append line 22, col 5 to line 24, col 21 of module sflogcrash>
+/\ LSN = 9
+/\ WriteExtent = <<3, 9>>
+/\ ReadExtents = {<<0, 2>>}
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2217:4 @!@!@
+11: <Append line 22, col 5 to line 24, col 21 of module sflogcrash>
+/\ LSN = 10
+/\ WriteExtent = <<3, 10>>
+/\ ReadExtents = {<<0, 2>>}
+
+@!@!@ENDMSG 2217 @!@!@
+@!@!@STARTMSG 2201:0 @!@!@
+The coverage statistics at 2020-10-28 19:46:47
+@!@!@ENDMSG 2201 @!@!@
+@!@!@STARTMSG 2773:0 @!@!@
+<Init line 11, col 1 to line 11, col 4 of module sflogcrash>: 2:2
+@!@!@ENDMSG 2773 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  line 12, col 5 to line 14, col 14 of module sflogcrash: 2
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2772:0 @!@!@
+<WriteExtentToReadExtent line 16, col 1 to line 16, col 23 of module sflogcrash>: 232:233
+@!@!@ENDMSG 2772 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  line 17, col 5 to line 19, col 21 of module sflogcrash: 233
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2772:0 @!@!@
+<Append line 21, col 1 to line 21, col 6 of module sflogcrash>: 238:248
+@!@!@ENDMSG 2772 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  line 22, col 8 to line 22, col 33 of module sflogcrash: 242
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  |line 22, col 23 to line 22, col 33 of module sflogcrash: 248
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  line 23, col 8 to line 23, col 49 of module sflogcrash: 242
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  |line 23, col 23 to line 23, col 49 of module sflogcrash: 248
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  line 24, col 8 to line 24, col 21 of module sflogcrash: 242
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  |line 24, col 15 to line 24, col 21 of module sflogcrash: 248
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2774:0 @!@!@
+<inv_160393960556640000 line 5, col 1 to line 5, col 22 of module MC>
+@!@!@ENDMSG 2774 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  line 6, col 1 to line 6, col 8 of module MC: 471
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2202:0 @!@!@
+End of statistics.
+@!@!@ENDMSG 2202 @!@!@
+@!@!@STARTMSG 2200:0 @!@!@
+Progress(11) at 2020-10-28 19:46:47: 471 states generated (20,733 s/min), 471 distinct states found (20,733 ds/min), 227 states left on queue.
+@!@!@ENDMSG 2200 @!@!@
+@!@!@STARTMSG 2199:0 @!@!@
+471 states generated, 471 distinct states found, 227 states left on queue.
+@!@!@ENDMSG 2199 @!@!@
+@!@!@STARTMSG 2194:0 @!@!@
+The depth of the complete state graph search is 11.
+@!@!@ENDMSG 2194 @!@!@
+@!@!@STARTMSG 2268:0 @!@!@
+The average outdegree of the complete state graph is 2 (minimum is 2, the maximum 2 and the 95th percentile is 2).
+@!@!@ENDMSG 2268 @!@!@
+@!@!@STARTMSG 2186:0 @!@!@
+Finished in 1371ms at (2020-10-28 19:46:47)
+@!@!@ENDMSG 2186 @!@!@

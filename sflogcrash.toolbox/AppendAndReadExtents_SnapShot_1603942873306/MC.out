@@ -1,0 +1,101 @@
+@!@!@STARTMSG 2262:0 @!@!@
+TLC2 Version 2.15 of Day Month 20?? (rev: eb3ff99)
+@!@!@ENDMSG 2262 @!@!@
+@!@!@STARTMSG 2187:0 @!@!@
+Running breadth-first search Model-Checking with fp 9 and seed 3047101335252240233 with 6 workers on 12 cores with 2402MB heap and 5402MB offheap memory [pid: 38812] (Windows 10 10.0 amd64, AdoptOpenJDK 14.0.1 x86_64, OffHeapDiskFPSet, DiskStateQueue).
+@!@!@ENDMSG 2187 @!@!@
+@!@!@STARTMSG 2220:0 @!@!@
+Starting SANY...
+@!@!@ENDMSG 2220 @!@!@
+Parsing file C:\Users\asnegi\Documents\tla\spec2\sflogcrash.toolbox\AppendAndReadExtents\MC.tla
+Parsing file C:\Users\asnegi\Documents\tla\spec2\sflogcrash.toolbox\AppendAndReadExtents\sflogcrash.tla
+Parsing file C:\Users\asnegi\Documents\tla\TLAToolbox-1.7.0-win32.win32.x86_64\toolbox\plugins\org.lamport.tlatools_1.0.0.202004251858\tla2sany\StandardModules\TLC.tla
+Parsing file C:\Users\asnegi\Documents\tla\TLAToolbox-1.7.0-win32.win32.x86_64\toolbox\plugins\org.lamport.tlatools_1.0.0.202004251858\tla2sany\StandardModules\Integers.tla
+Parsing file C:\Users\asnegi\Documents\tla\TLAToolbox-1.7.0-win32.win32.x86_64\toolbox\plugins\org.lamport.tlatools_1.0.0.202004251858\tla2sany\StandardModules\Naturals.tla
+Parsing file C:\Users\asnegi\Documents\tla\TLAToolbox-1.7.0-win32.win32.x86_64\toolbox\plugins\org.lamport.tlatools_1.0.0.202004251858\tla2sany\StandardModules\Sequences.tla
+Parsing file C:\Users\asnegi\Documents\tla\TLAToolbox-1.7.0-win32.win32.x86_64\toolbox\plugins\org.lamport.tlatools_1.0.0.202004251858\tla2sany\StandardModules\FiniteSets.tla
+Semantic processing of module Naturals
+Semantic processing of module Integers
+Semantic processing of module sflogcrash
+Semantic processing of module Sequences
+Semantic processing of module FiniteSets
+Semantic processing of module TLC
+Semantic processing of module MC
+@!@!@STARTMSG 2219:0 @!@!@
+SANY finished.
+@!@!@ENDMSG 2219 @!@!@
+@!@!@STARTMSG 2185:0 @!@!@
+Starting... (2020-10-28 20:41:10)
+@!@!@ENDMSG 2185 @!@!@
+@!@!@STARTMSG 2189:0 @!@!@
+Computing initial states...
+@!@!@ENDMSG 2189 @!@!@
+@!@!@STARTMSG 2102:1 @!@!@
+Attempted to enumerate a set of the form [l1 : v1, ..., ln : vn],
+but can't enumerate the value of the `start' field:
+0
+While working on the initial state:
+/\ ReadOnlyExtents = {}
+/\ LSN = 0
+/\ WriteExtent = [start: 0, end: 0]
+
+@!@!@ENDMSG 2102 @!@!@
+@!@!@STARTMSG 2147:1 @!@!@
+TLC was unable to fingerprint.
+
+Fingerprint Stack Trace:
+0) line 14, col 22 to line 14, col 41 of module sflogcrash
+
+Reason:
+Attempted to enumerate a set of the form [l1 : v1, ..., ln : vn],
+but can't enumerate the value of the `start' field:
+0
+@!@!@ENDMSG 2147 @!@!@
+@!@!@STARTMSG 2201:0 @!@!@
+The coverage statistics at 2020-10-28 20:41:11
+@!@!@ENDMSG 2201 @!@!@
+@!@!@STARTMSG 2773:0 @!@!@
+<Init line 12, col 1 to line 12, col 4 of module sflogcrash>: 2:2
+@!@!@ENDMSG 2773 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  line 13, col 5 to line 15, col 14 of module sflogcrash: 2
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2772:0 @!@!@
+<NewWriteExtent line 17, col 1 to line 17, col 14 of module sflogcrash>: 0:0
+@!@!@ENDMSG 2772 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  line 18, col 8 to line 18, col 64 of module sflogcrash: 0
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  line 19, col 8 to line 19, col 42 of module sflogcrash: 0
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  line 20, col 8 to line 20, col 21 of module sflogcrash: 0
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2772:0 @!@!@
+<AppendToFile line 22, col 1 to line 22, col 12 of module sflogcrash>: 0:0
+@!@!@ENDMSG 2772 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  line 23, col 8 to line 23, col 41 of module sflogcrash: 0
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  line 24, col 8 to line 24, col 64 of module sflogcrash: 0
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2221:0 @!@!@
+  line 25, col 8 to line 25, col 21 of module sflogcrash: 0
+@!@!@ENDMSG 2221 @!@!@
+@!@!@STARTMSG 2774:0 @!@!@
+<inv_160394287024268000 line 5, col 1 to line 5, col 22 of module MC>
+@!@!@ENDMSG 2774 @!@!@
+@!@!@STARTMSG 2202:0 @!@!@
+End of statistics.
+@!@!@ENDMSG 2202 @!@!@
+@!@!@STARTMSG 2200:0 @!@!@
+Progress(1) at 2020-10-28 20:41:11: 1 states generated (49 s/min), 0 distinct states found (0 ds/min), 0 states left on queue.
+@!@!@ENDMSG 2200 @!@!@
+@!@!@STARTMSG 2199:0 @!@!@
+1 states generated, 0 distinct states found, 0 states left on queue.
+@!@!@ENDMSG 2199 @!@!@
+@!@!@STARTMSG 2186:0 @!@!@
+Finished in 1214ms at (2020-10-28 20:41:11)
+@!@!@ENDMSG 2186 @!@!@
