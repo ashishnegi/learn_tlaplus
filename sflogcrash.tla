@@ -4,24 +4,24 @@ EXTENDS Integers
 VARIABLES ReadOnlyExtents, WriteExtent, LSN
 
 TypeOK ==
-    /\ ReadOnlyExtents = {} \* How to say it is a set of Tuple of size 2
-    /\ WriteExtent = \A i, j \in Nat : /\ <<i, j>>
+    /\ ReadOnlyExtents = {} \* How to say it is a set of Records with start and end fields ?
+    /\ WriteExtent = \A i, j \in Nat : /\ [ start |-> i, end |-> j]
                                        /\ i <= j
     /\ LSN \in 0..100
 
 Init ==
     /\ ReadOnlyExtents = {}
-    /\ WriteExtent = <<0, 0>>
+    /\ WriteExtent = [start |-> 0, end |-> 0]
     /\ LSN = 0
     
 NewWriteExtent ==
     /\ ReadOnlyExtents' = ReadOnlyExtents \union { WriteExtent }
-    /\ WriteExtent' = <<LSN + 1, LSN + 1>>
+    /\ WriteExtent' = [start |-> WriteExtent.end + 1, end |-> WriteExtent.end + 1]
     /\ LSN' = LSN + 1
 
 AppendToFile ==
     /\ ReadOnlyExtents' = ReadOnlyExtents
-    /\ WriteExtent' = <<WriteExtent[1], LSN + 1>>
+    /\ WriteExtent' = [start |-> WriteExtent.start, end |-> LSN + 1]
     /\ LSN' = LSN + 1
     
 Next ==
@@ -35,5 +35,5 @@ Next ==
 
 =============================================================================
 \* Modification History
-\* Last modified Wed Oct 28 20:43:09 PDT 2020 by asnegi
+\* Last modified Wed Oct 28 21:00:40 PDT 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
