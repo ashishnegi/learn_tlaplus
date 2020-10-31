@@ -31,28 +31,28 @@ TMAbort ==
 
 \* RM does not know anything about TM's state
 RMPrepare(r) ==
-    /\ rmState = [ rmState EXCEPT ![r] = "working" ]
+    /\ rmState[r] = "working"
     /\ rmState' = [ rmState EXCEPT ![r] = "prepared" ]
     /\ UNCHANGED << tmState, tmPrepared >>
 
 RMChooseAbort(r) ==
-    /\ \/ rmState = [ rmState EXCEPT ![r] = "working" ]
+    /\ \/ rmState[r] = "prepared"
        \/ rmState = [ rmState EXCEPT ![r] = "prepared" ]
     /\ rmState' = [ rmState EXCEPT ![r] = "abort" ]
     /\ UNCHANGED << tmState, tmPrepared >>
 
 RMChooseCommit(r) ==
-    /\ rmState = [ rmState EXCEPT ![r] = "prepared" ]
+    /\ rmState[r] = "prepared"
     /\ rmState' = [ rmState EXCEPT ![r] = "commit" ]
     /\ UNCHANGED << tmState, tmPrepared >>
 
 RMReceiveAbort(r) ==
-    /\ rmState = [ rmState EXCEPT ![r] = "prepared" ]
+    /\ rmState[r] = "prepared"
     /\ rmState' = [ rmState EXCEPT ![r] = "abort" ]
     /\ UNCHANGED << tmState, tmPrepared >>
 
 RMReceiveCommit(r) ==
-    /\ rmState = [ rmState EXCEPT ![r] = "prepared" ]
+    /\ rmState[r] = "prepared"
     /\ rmState' = [ rmState EXCEPT ![r] = "commit" ]
     /\ UNCHANGED << tmState, tmPrepared >>
 
@@ -73,7 +73,7 @@ TCConsistent ==
 
 =============================================================================
 \* Modification History
-\* Last modified Fri Oct 30 21:50:36 PDT 2020 by asnegi
+\* Last modified Fri Oct 30 22:11:12 PDT 2020 by asnegi
 \* Created Fri Oct 30 20:51:08 PDT 2020 by asnegi
 
 (*
