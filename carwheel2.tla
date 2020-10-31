@@ -39,6 +39,6 @@ Next ==
     \/ ChangeTyre
 
 MinMilesDriven ==
-   MilesDriven < 25
+   MilesDriven < 25 \* For 26, we don't get any result. So, 25 is optimal
  
 =============================================================================

@@ -36,8 +36,8 @@ RMPrepare(r) ==
     /\ UNCHANGED << tmState, tmPrepared >>
 
 RMChooseAbort(r) ==
-    /\ \/ rmState[r] = "prepared"
-       \/ rmState = [ rmState EXCEPT ![r] = "prepared" ]
+    /\ \/ rmState[r] = "working"
+       \/ rmState[r] = "prepared"
     /\ rmState' = [ rmState EXCEPT ![r] = "abort" ]
     /\ UNCHANGED << tmState, tmPrepared >>
 
@@ -73,7 +73,7 @@ TCConsistent ==
 
 =============================================================================
 \* Modification History
-\* Last modified Fri Oct 30 22:11:12 PDT 2020 by asnegi
+\* Last modified Fri Oct 30 22:14:03 PDT 2020 by asnegi
 \* Created Fri Oct 30 20:51:08 PDT 2020 by asnegi
 
 (*
