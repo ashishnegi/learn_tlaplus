@@ -10,8 +10,8 @@ TypeOK ==
     /\ SpareTyre \in {0, 1, 2, 3, 4}
     /\ NextChangeTyre \in {0, 1, 2, 3, 4}
     \* Not sure how to represent a set of all possible combinations 
-    \*      of record whose keys are in Domain 0..4 and values in Domain 0..20
-    \*/\ TyresMileage = [ {0, 1, 2, 3, 4} -> 0..20 ]
+    \*      of record which has 5 keys 0..4 and values in Domain 0..20
+    \* /\ TyresMileage = [ [ 0 -> 0..20, 1 -> 0..20, 2 -> 0..20 ] ]
     /\ MilesDriven \in 0..100
 
 Init ==
