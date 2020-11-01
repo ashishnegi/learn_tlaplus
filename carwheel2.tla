@@ -6,12 +6,14 @@ EXTENDS Integers, TLC
 VARIABLES InCarTyres, SpareTyre, NextChangeTyre, TyresMileage, MilesDriven
 
 TypeOK ==
+    \* How to say size of InCarTyres should be 4 ?
     /\ InCarTyres \subseteq {0, 1, 2, 3, 4}
     /\ SpareTyre \in {0, 1, 2, 3, 4}
     /\ NextChangeTyre \in {0, 1, 2, 3, 4}
+    /\ SpareTyre # NextChangeTyre
     \* Not sure how to represent a set of all possible combinations 
     \*      of record which has 5 keys 0..4 and values in Domain 0..20
-    \* /\ TyresMileage = [ [ 0 -> 0..20, 1 -> 0..20, 2 -> 0..20 ] ]
+    \* /\ TyresMileage = [ 0 -> 0..20, 1 -> 0..20, 2 -> 0..20 ]
     /\ MilesDriven \in 0..100
 
 Init ==
@@ -31,7 +33,8 @@ ChangeTyre ==
     /\ TyresMileage[SpareTyre] > 0
     /\ InCarTyres' = (InCarTyres \union { SpareTyre }) \ { NextChangeTyre }
     /\ SpareTyre' = NextChangeTyre
-    /\ NextChangeTyre' = (NextChangeTyre + 1) % 5
+    \* Choose to replace most driven tyre for next change.
+    /\ NextChangeTyre' = CHOOSE v \in InCarTyres' : \A u \in InCarTyres' : TyresMileage[v] <= TyresMileage[u]
     /\ UNCHANGED << TyresMileage, MilesDriven >>
 
 Next == 
