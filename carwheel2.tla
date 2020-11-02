@@ -5,11 +5,18 @@
 EXTENDS Integers, TLC
 VARIABLES InCarTyres, SpareTyre, NextChangeTyre, TyresMileage, MilesDriven
 
+\* head is for Sequences..
+\* Why can't we get elements of a set ?
+\*LenSet(s) ==
+\*    IF s = {}
+\*    THEN 0
+\*    ELSE 1 + LenSet(s) \ { Head(s) }
+
 TypeOK ==
     /\ InCarTyres \subseteq {0, 1, 2, 3, 4}
     \* How to say size of InCarTyres should be 4 ?
     \* Len works for Sequences
-    \* /\ Len(InCarTyres) = 4
+    \* /\ LenSet(InCarTyres) = 4
     /\ SpareTyre \in {0, 1, 2, 3, 4}
     /\ NextChangeTyre \in {0, 1, 2, 3, 4}
     /\ SpareTyre # NextChangeTyre

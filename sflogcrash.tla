@@ -9,17 +9,24 @@ EXTENDS Integers, Sequences
 \*      extent: [ start, end ] where start <= end.
 \*              means that extent contains data from [start, end) // end not included
 \*              start == end means no data in file.
-VARIABLES ReadOnlyExtents, WriteExtent, LSN, NextState, PrevState
+\* ReadOnlyExtents => sequence of read only files, which moved to read only set, after size limit.
+\* WriteExtent => current file to which logger is appending
+\* LSN => tracks LSN to which logger has acked write success
+\* NextState, PrevState => used for restricting the next state of the logger state machine
+\* MaxLSN => used for reducing the search space to finish running the model checker and visualizing the space graph.
+VARIABLES ReadOnlyExtents, WriteExtent, LSN, NextState, PrevState, MaxLSN
 
 TypeOK ==
-    /\ ReadOnlyExtents = <<>> \* How to say it is a Sequence of Records with start and end fields ?
-    \* How to add null as state to WriteExtent ? -- when write extent file does not exist on disk.
-    /\ WriteExtent = \A i, j \in Nat : /\ [ start |-> i, end |-> j]
-                                       /\ i <= j
-    /\ LSN \in 0..10
-    /\ NextState \in {          "append", "write_extent_full_move_to_readonly", "write_extent_full_new_write_extent", "crash" }
-    /\ PrevState \in { "start", "append", "write_extent_full_move_to_readonly", "write_extent_full_new_write_extent", "crash" }
-
+    \* How to tell TLA+ to put upper bound on LSN so that TLC does analysis only under LSN < MaxLSN ?
+    \* How to say it is Sequence of Records with start and end fields ?
+    \* /\ ReadOnlyExtents \in <<>> 
+    \* How to create a set of records with start <= end ?
+    \* Todo: How to add null as state to WriteExtent ? -- when write extent file does not exist on disk.
+    /\ WriteExtent \in [ { "start", "end" } -> 0..MaxLSN ] 
+    /\ LSN \in 0..MaxLSN
+    /\ NextState \in {          "append", "WE_full_move_to_RE", "WE_full_new_WE", "crash" }
+    /\ PrevState \in { "start", "append", "WE_full_move_to_RE", "WE_full_new_WE", "crash" }
+    /\ MaxLSN = 2
 
 Init ==
     /\ ReadOnlyExtents = <<>>
@@ -27,43 +34,49 @@ Init ==
     /\ LSN = 0
     /\ NextState = "append"
     /\ PrevState = "start"
+    /\ MaxLSN = 2
 
 \* Append keeps appending to WriteExtent increasing end LSN.
-\* Prev states: "append" or "write_extent_full_new_write_extent" states.
-\* Next states: "append" or "write_extent_full_move_to_readonly" states.  
+\* Prev states: "append" or "WE_full_new_WE" states.
+\* Next states: "append" or "WE_full_move_to_RE" states.  
 AppendToFile ==
     /\ \/ PrevState = "start"
        \/ PrevState = "append"
-       \/ PrevState = "write_extent_full_new_write_extent"
+       \/ PrevState = "WE_full_new_WE"
+    /\ LSN < MaxLSN
     /\ ReadOnlyExtents' = ReadOnlyExtents
     /\ WriteExtent' = [start |-> WriteExtent.start, end |-> WriteExtent.end + 1]
     /\ LSN' = LSN + 1
     /\ \/ NextState' = "append"
-       \/ NextState' = "write_extent_full_move_to_readonly"
+       \/ NextState' = "WE_full_move_to_RE"
     /\ PrevState' = "append"
+    /\ UNCHANGED << MaxLSN >>
 
 \* Append fills up write extent file
 \* Make write extent a read only extent
 \* Prev states: "append"
-\* Next states: "write_extent_full_new_write_extent"
+\* Next states: "WE_full_new_WE"
 WriteExtentFullMoveToReadOnly ==
     /\ PrevState = "append"
     /\ ReadOnlyExtents' = Append(ReadOnlyExtents, WriteExtent)
     /\ WriteExtent' = WriteExtent \* How to make it null ? i.e. does not exist on disk.
     /\ LSN' = LSN
-    /\ NextState' = "write_extent_full_new_write_extent"
-    /\ PrevState' = "write_extent_full_move_to_readonly"
+    /\ NextState' = "WE_full_new_WE"
+    /\ PrevState' = "WE_full_move_to_RE"
+    /\ UNCHANGED << MaxLSN >>
 
 \* Create new write extent file and open for new appends
-\* Prev states: "write_extent_full_move_to_readonly"
+\* Prev states: "WE_full_move_to_RE"
 \* Next states: "append"
 NewWriteExtentAppend ==
-    /\ PrevState = "write_extent_full_move_to_readonly"
+    /\ PrevState = "WE_full_move_to_RE"
+    /\ LSN < MaxLSN
     /\ ReadOnlyExtents' = ReadOnlyExtents
     /\ WriteExtent' = [start |-> WriteExtent.end + 1, end |-> WriteExtent.end + 1]
     /\ LSN' = LSN + 1
     /\ NextState' = "append"
-    /\ PrevState' = "write_extent_full_new_write_extent"
+    /\ PrevState' = "WE_full_new_WE"
+    /\ UNCHANGED << MaxLSN >>
     
 Next ==
     \/ AppendToFile
@@ -74,17 +87,17 @@ Next ==
 
 \* Invariant 1: NoDataLoss
 \* All read only extents have non missing LSN
-\*   ReadOnlyExtents[1].start <= ReadOnlyExtents[1].end == ReadOnlyExtents[2].start + 1 
-\*         <= ReadOnlyExtents[2].end == ReadOnlyExtents[3].start + 1 <= ...
+\*   ReadOnlyExtents[1].start < ReadOnlyExtents[1].end + 1 == ReadOnlyExtents[2].start
+\*         < ReadOnlyExtents[2].end + 1 == ReadOnlyExtents[3].start < ...
 \* write extent has latest data
 \*   LSN == WriteExtent.end >= WriteExtent.start == ReadOnlyExtents[last].end + 1
 
 ValidReadOnlyExtents ==
-    /\ \A i \in 1..Len(ReadOnlyExtents)-1 : /\ ReadOnlyExtents[i].start <= ReadOnlyExtents[i].end
+    /\ \A i \in 1..Len(ReadOnlyExtents)-1 : /\ ReadOnlyExtents[i].start < ReadOnlyExtents[i].end
                                             /\ ReadOnlyExtents[i].end + 1 = ReadOnlyExtents[i+1].start
-    \* In "write_extent_full_move_to_readonly" state, 
+    \* In "WE_full_move_to_RE" state, 
     \* WriteExtent does not exist on disk as it is moved to ReadOnlyExtents
-    /\ \/ PrevState = "write_extent_full_move_to_readonly" 
+    /\ \/ PrevState = "WE_full_move_to_RE" \* Todo: Handle this case ? by WE as null
        \/ IF Len(ReadOnlyExtents) > 0
           THEN ReadOnlyExtents[Len(ReadOnlyExtents)].end + 1 = WriteExtent.start
           ELSE 1 = 1
@@ -97,8 +110,10 @@ NoDataLoss ==
     /\ ValidReadOnlyExtents
     /\ ValidWriteExtent
 
-
+\* Change below value to see different steps taken for particular test run.
+LSNSteps ==
+    LSN < MaxLSN
 =============================================================================
 \* Modification History
-\* Last modified Thu Oct 29 07:14:15 PDT 2020 by asnegi
+\* Last modified Sun Nov 01 21:11:30 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
