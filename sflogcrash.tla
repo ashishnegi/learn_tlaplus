@@ -22,11 +22,13 @@ TypeOK ==
     \* /\ ReadOnlyExtents \in <<>> 
     \* How to create a set of records with start <= end ?
     \* Todo: How to add null as state to WriteExtent ? -- when write extent file does not exist on disk.
-    /\ WriteExtent \in [ { "start", "end" } -> 0..MaxLSN ] 
+    /\ WriteExtent \in [ { "start", "end" } -> 0..MaxLSN ]
+    \* /\ WriteExtent \in LET allSets == [ { "start", "end" } -> 0..MaxLSN ]
+    \*                   IN v \in allSets : v.start < v.end
     /\ LSN \in 0..MaxLSN
     /\ NextState \in {          "append", "WE_full_move_to_RE", "WE_full_new_WE", "crash" }
     /\ PrevState \in { "start", "append", "WE_full_move_to_RE", "WE_full_new_WE", "crash" }
-    /\ MaxLSN = 2
+    /\ MaxLSN = 10
 
 Init ==
     /\ ReadOnlyExtents = <<>>
@@ -34,7 +36,7 @@ Init ==
     /\ LSN = 0
     /\ NextState = "append"
     /\ PrevState = "start"
-    /\ MaxLSN = 2
+    /\ MaxLSN = 10
 
 \* Append keeps appending to WriteExtent increasing end LSN.
 \* Prev states: "append" or "WE_full_new_WE" states.
@@ -115,5 +117,5 @@ LSNSteps ==
     LSN < MaxLSN
 =============================================================================
 \* Modification History
-\* Last modified Sun Nov 01 21:11:30 PST 2020 by asnegi
+\* Last modified Sun Nov 01 23:23:47 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
