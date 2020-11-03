@@ -12,9 +12,9 @@ EXTENDS Integers, Sequences
 \* REs => sequence of read only files, which moved to read only set, after size limit.
 \* WE => current file to which logger is appending
 \* LSN => tracks LSN to which logger has acked write success
-\* NextState, PrevState => used for restricting the next state of the logger state machine
+\* PrevState => used for restricting the next state of the logger state machine
 \* MaxLSN => used for reducing the search space to finish running the model checker and visualizing the space graph.
-VARIABLES REs, WE, WEonDisk, LSN, NextState, PrevState, MaxLSN
+VARIABLES REs, WE, WEonDisk, LSN, PrevState, MaxLSN
 
 TypeOK ==
     \* How to tell TLA+ to put upper bound on LSN so that TLC does analysis only under LSN < MaxLSN ?
@@ -27,7 +27,6 @@ TypeOK ==
     \* /\ WE \in LET allSets == [ { "start", "end" } -> 0..MaxLSN ]
     \*                   IN v \in allSets : v.start < v.end
     /\ LSN \in 0..MaxLSN
-    /\ NextState \in {          "append", "WE_full_move_to_RE", "WE_full_new_WE", "crash", "recovery" }
     /\ PrevState \in { "start", "append", "WE_full_move_to_RE", "WE_full_new_WE", "crash", "recovery" }
     /\ MaxLSN = 10
 
@@ -36,7 +35,6 @@ Init ==
     /\ WE = [start |-> 1, end |-> 1]
     /\ WEonDisk = TRUE
     /\ LSN = 0
-    /\ NextState = "append"
     /\ PrevState = "start"
     /\ MaxLSN = 10
 
@@ -51,9 +49,6 @@ AppendToFile ==
     /\ LSN < MaxLSN  \* Stop TLC model checker to generate more cases.
     /\ WE' = [start |-> WE.start, end |-> WE.end + 1]
     /\ LSN' = LSN + 1
-    /\ \/ NextState' = "append"
-       \/ NextState' = "WE_full_move_to_RE"
-       \/ NextState' = "crash"
     /\ PrevState' = "append"
     /\ UNCHANGED << MaxLSN, REs, WEonDisk >>
 
@@ -66,8 +61,6 @@ WriteExtentFullMoveToReadOnly ==
     /\ REs' = Append(REs, WE)
     /\ WEonDisk' = FALSE
     /\ LSN' = LSN
-    /\ \/ NextState' = "WE_full_new_WE"
-       \/ NextState' = "crash"
     /\ PrevState' = "WE_full_move_to_RE"
     /\ UNCHANGED << MaxLSN, WE >>
 
@@ -79,8 +72,6 @@ NewWriteExtentAppend ==
     /\ LSN < MaxLSN
     /\ WE' = [start |-> WE.end, end |-> WE.end + 1]
     /\ LSN' = LSN + 1
-    /\ \/ NextState' = "append"
-       \/ NextState' = "crash"
     /\ PrevState' = "WE_full_new_WE"
     /\ UNCHANGED << MaxLSN, REs, WEonDisk >>
 
@@ -88,24 +79,18 @@ NewWriteExtentAppend ==
 CrashWhileAppend ==
     /\ \/ PrevState = "append"
        \/ PrevState = "WE_full_new_WE"
-    /\ NextState = "crash"
     /\ PrevState' = "crash"
-    /\ \/ NextState' = "recovery"
-       \/ NextState' = "crash"
     /\ LSN' = LSN - 1
     /\ WE' = [ start |-> WE.start, end |-> WE.end - 1 ]
     /\ UNCHANGED << MaxLSN, REs, WEonDisk >>
     
 CrashNoDataLoss ==
-    /\ NextState = "crash"
-    /\ NextState' = "recovery"
     /\ PrevState' = "crash"
     /\ UNCHANGED << MaxLSN, LSN, REs, WE, WEonDisk >>    
 
 \* Crash:
 CrashDataLost ==
-    /\ NextState = "crash"
-    /\ NextState' = "recovery"
+    /\ PrevState' = "crash"
     /\ LSN' = IF LSN > (MaxLSN \div 2)
               THEN MaxLSN \div 2
               ELSE IF LSN > 2
@@ -120,8 +105,6 @@ CrashDataLost ==
 Recovery ==
     /\ PrevState = "crash"
     /\ PrevState' = "recovery"
-    /\ \/ NextState' = "append"
-       \/ NextState' = "crash"
     /\ WEonDisk = TRUE
     /\ UNCHANGED << MaxLSN, LSN, REs, WE, WEonDisk >>
 
@@ -165,5 +148,5 @@ LSNSteps ==
     LSN < MaxLSN
 =============================================================================
 \* Modification History
-\* Last modified Mon Nov 02 19:48:21 PST 2020 by asnegi
+\* Last modified Mon Nov 02 19:52:01 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
