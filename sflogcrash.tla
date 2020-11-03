@@ -17,18 +17,13 @@ EXTENDS Integers, Sequences
 VARIABLES REs, WE, WEonDisk, LSN, PrevState, MaxLSN
 
 TypeOK ==
-    \* How to tell TLA+ to put upper bound on LSN so that TLC does analysis only under LSN < MaxLSN ?
-    \* How to say it is Sequence of Records with start and end fields ?
-    \* /\ REs \in <<>> 
-    \* How to create a set of records with start <= end ?
-    \* Todo: How to add null as state to WE ? -- when write extent file does not exist on disk.
-    /\ WE \in [ { "start", "end" } -> 1..MaxLSN+1 ]
+    /\ WE \in [ start : 1..MaxLSN+1, end : 1..MaxLSN+1 ]
+    /\ WE.start <= WE.end
+    /\ REs \in Seq([ start: 1..MaxLSN+1, end : 1..MaxLSN+1])
     /\ WEonDisk \in { TRUE, FALSE }
-    \* /\ WE \in LET allSets == [ { "start", "end" } -> 0..MaxLSN ]
-    \*                   IN v \in allSets : v.start < v.end
     /\ LSN \in 0..MaxLSN
     /\ PrevState \in { "start", "append", "WE_full_move_to_RE", "WE_full_new_WE", "crash", "recovery" }
-    /\ MaxLSN = 10
+    /\ MaxLSN = 2
 
 Init ==
     /\ REs = <<>>
@@ -36,7 +31,7 @@ Init ==
     /\ WEonDisk = TRUE
     /\ LSN = 0
     /\ PrevState = "start"
-    /\ MaxLSN = 10
+    /\ MaxLSN = 2
 
 \* Append keeps appending to WE increasing end LSN.
 \* Prev states: "append" or "WE_full_new_WE" states.
@@ -81,8 +76,7 @@ CrashWhileAppend ==
        \/ PrevState = "WE_full_new_WE"
     /\ PrevState' = "crash"
     /\ LSN' = LSN - 1
-    /\ WE' = [ start |-> WE.start, end |-> WE.end - 1 ]
-    /\ UNCHANGED << MaxLSN, REs, WEonDisk >>
+    /\ UNCHANGED << MaxLSN, REs, WE, WEonDisk >>
     
 CrashNoDataLoss ==
     /\ PrevState' = "crash"
@@ -96,8 +90,6 @@ CrashDataLost ==
               ELSE IF LSN > 2
                    THEN 2
                    ELSE 0
-    /\ REs' = LET NonCorrupt(re) == re.end <= LSN' 
-              IN SelectSeq(REs, NonCorrupt)
     /\ UNCHANGED << MaxLSN, WE, WEonDisk >>
 
 \* After crash, we can't look at value of WEonDisk, WE
@@ -105,8 +97,21 @@ CrashDataLost ==
 Recovery ==
     /\ PrevState = "crash"
     /\ PrevState' = "recovery"
-    /\ WEonDisk = TRUE
-    /\ UNCHANGED << MaxLSN, LSN, REs, WE, WEonDisk >>
+    /\ WEonDisk' = TRUE
+    /\ LET allFiles == IF Len(REs) = 0
+                       THEN <<WE>>
+                       ELSE IF REs[Len(REs)] = WE
+                            THEN REs
+                            ELSE Append(REs, WE)
+           goodREs == LET NonCorrupt(re) == (re.start <= LSN)
+                      IN SelectSeq(allFiles, NonCorrupt)
+       IN /\ REs' = IF Len(goodREs) > 0
+                    THEN SubSeq(goodREs, 1, Len(goodREs) - 1)
+                    ELSE <<>>
+          /\ WE' = IF Len(goodREs) > 0
+                   THEN [ goodREs[Len(goodREs)] EXCEPT !["end"] = LSN + 1 ]
+                   ELSE [start |-> 1, end |-> LSN + 1]
+    /\ UNCHANGED << MaxLSN, LSN >>
 
 Next ==
     \/ AppendToFile
@@ -140,13 +145,14 @@ ValidWriteExtent ==
     /\ WE.end = LSN + 1
 
 NoDataLoss ==
-    /\ ValidReadOnlyExtents
-    /\ ValidWriteExtent
+    \/ PrevState = "crash" \* No valid state during crash
+    \/ /\ ValidReadOnlyExtents
+       /\ ValidWriteExtent
 
 \* Change below value to see different steps taken for particular test run.
 LSNSteps ==
-    LSN < MaxLSN
+    LSN < MaxLSN - 1
 =============================================================================
 \* Modification History
-\* Last modified Mon Nov 02 19:52:01 PST 2020 by asnegi
+\* Last modified Tue Nov 03 14:08:54 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
