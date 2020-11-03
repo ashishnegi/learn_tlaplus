@@ -23,7 +23,7 @@ TypeOK ==
     /\ WEonDisk \in { TRUE, FALSE }
     /\ LSN \in 0..MaxLSN
     /\ PrevState \in { "start", "append", "WE_full_move_to_RE", "WE_full_new_WE", "crash", "recovery" }
-    /\ MaxLSN = 2
+    /\ MaxLSN = 10
 
 Init ==
     /\ REs = <<>>
@@ -31,7 +31,7 @@ Init ==
     /\ WEonDisk = TRUE
     /\ LSN = 0
     /\ PrevState = "start"
-    /\ MaxLSN = 2
+    /\ MaxLSN = 10
 
 \* Append keeps appending to WE increasing end LSN.
 \* Prev states: "append" or "WE_full_new_WE" states.
@@ -90,7 +90,7 @@ CrashDataLost ==
               ELSE IF LSN > 2
                    THEN 2
                    ELSE 0
-    /\ UNCHANGED << MaxLSN, WE, WEonDisk >>
+    /\ UNCHANGED << MaxLSN, REs, WE, WEonDisk >>
 
 \* After crash, we can't look at value of WEonDisk, WE
 \* We have a list of files on disk
@@ -119,6 +119,7 @@ Next ==
     \/ NewWriteExtentAppend
     \/ CrashWhileAppend
     \/ CrashNoDataLoss
+    \/ CrashDataLost
     \/ Recovery
 
 \* Invariants:
@@ -154,5 +155,5 @@ LSNSteps ==
     LSN < MaxLSN - 1
 =============================================================================
 \* Modification History
-\* Last modified Tue Nov 03 14:08:54 PST 2020 by asnegi
+\* Last modified Tue Nov 03 14:21:03 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
