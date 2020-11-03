@@ -9,50 +9,53 @@ EXTENDS Integers, Sequences
 \*      extent: [ start, end ] where start <= end.
 \*              means that extent contains data from [start, end) // end not included
 \*              start == end means no data in file.
-\* ReadOnlyExtents => sequence of read only files, which moved to read only set, after size limit.
-\* WriteExtent => current file to which logger is appending
+\* REs => sequence of read only files, which moved to read only set, after size limit.
+\* WE => current file to which logger is appending
 \* LSN => tracks LSN to which logger has acked write success
 \* NextState, PrevState => used for restricting the next state of the logger state machine
 \* MaxLSN => used for reducing the search space to finish running the model checker and visualizing the space graph.
-VARIABLES ReadOnlyExtents, WriteExtent, LSN, NextState, PrevState, MaxLSN
+VARIABLES REs, WE, WEonDisk, LSN, NextState, PrevState, MaxLSN
 
 TypeOK ==
     \* How to tell TLA+ to put upper bound on LSN so that TLC does analysis only under LSN < MaxLSN ?
     \* How to say it is Sequence of Records with start and end fields ?
-    \* /\ ReadOnlyExtents \in <<>> 
+    \* /\ REs \in <<>> 
     \* How to create a set of records with start <= end ?
-    \* Todo: How to add null as state to WriteExtent ? -- when write extent file does not exist on disk.
-    /\ WriteExtent \in [ { "start", "end" } -> 0..MaxLSN ]
-    \* /\ WriteExtent \in LET allSets == [ { "start", "end" } -> 0..MaxLSN ]
+    \* Todo: How to add null as state to WE ? -- when write extent file does not exist on disk.
+    /\ WE \in [ { "start", "end" } -> 1..MaxLSN+1 ]
+    /\ WEonDisk \in { TRUE, FALSE }
+    \* /\ WE \in LET allSets == [ { "start", "end" } -> 0..MaxLSN ]
     \*                   IN v \in allSets : v.start < v.end
     /\ LSN \in 0..MaxLSN
-    /\ NextState \in {          "append", "WE_full_move_to_RE", "WE_full_new_WE", "crash" }
-    /\ PrevState \in { "start", "append", "WE_full_move_to_RE", "WE_full_new_WE", "crash" }
+    /\ NextState \in {          "append", "WE_full_move_to_RE", "WE_full_new_WE", "crash", "recovery" }
+    /\ PrevState \in { "start", "append", "WE_full_move_to_RE", "WE_full_new_WE", "crash", "recovery" }
     /\ MaxLSN = 10
 
 Init ==
-    /\ ReadOnlyExtents = <<>>
-    /\ WriteExtent = [start |-> 0, end |-> 0]
+    /\ REs = <<>>
+    /\ WE = [start |-> 1, end |-> 1]
+    /\ WEonDisk = TRUE
     /\ LSN = 0
     /\ NextState = "append"
     /\ PrevState = "start"
     /\ MaxLSN = 10
 
-\* Append keeps appending to WriteExtent increasing end LSN.
+\* Append keeps appending to WE increasing end LSN.
 \* Prev states: "append" or "WE_full_new_WE" states.
 \* Next states: "append" or "WE_full_move_to_RE" states.  
 AppendToFile ==
     /\ \/ PrevState = "start"
        \/ PrevState = "append"
        \/ PrevState = "WE_full_new_WE"
-    /\ LSN < MaxLSN
-    /\ ReadOnlyExtents' = ReadOnlyExtents
-    /\ WriteExtent' = [start |-> WriteExtent.start, end |-> WriteExtent.end + 1]
+       \/ PrevState = "recovery"
+    /\ LSN < MaxLSN  \* Stop TLC model checker to generate more cases.
+    /\ WE' = [start |-> WE.start, end |-> WE.end + 1]
     /\ LSN' = LSN + 1
     /\ \/ NextState' = "append"
        \/ NextState' = "WE_full_move_to_RE"
+       \/ NextState' = "crash"
     /\ PrevState' = "append"
-    /\ UNCHANGED << MaxLSN >>
+    /\ UNCHANGED << MaxLSN, REs, WEonDisk >>
 
 \* Append fills up write extent file
 \* Make write extent a read only extent
@@ -60,12 +63,13 @@ AppendToFile ==
 \* Next states: "WE_full_new_WE"
 WriteExtentFullMoveToReadOnly ==
     /\ PrevState = "append"
-    /\ ReadOnlyExtents' = Append(ReadOnlyExtents, WriteExtent)
-    /\ WriteExtent' = WriteExtent \* How to make it null ? i.e. does not exist on disk.
+    /\ REs' = Append(REs, WE)
+    /\ WEonDisk' = FALSE
     /\ LSN' = LSN
-    /\ NextState' = "WE_full_new_WE"
+    /\ \/ NextState' = "WE_full_new_WE"
+       \/ NextState' = "crash"
     /\ PrevState' = "WE_full_move_to_RE"
-    /\ UNCHANGED << MaxLSN >>
+    /\ UNCHANGED << MaxLSN, WE >>
 
 \* Create new write extent file and open for new appends
 \* Prev states: "WE_full_move_to_RE"
@@ -73,40 +77,84 @@ WriteExtentFullMoveToReadOnly ==
 NewWriteExtentAppend ==
     /\ PrevState = "WE_full_move_to_RE"
     /\ LSN < MaxLSN
-    /\ ReadOnlyExtents' = ReadOnlyExtents
-    /\ WriteExtent' = [start |-> WriteExtent.end + 1, end |-> WriteExtent.end + 1]
+    /\ WE' = [start |-> WE.end, end |-> WE.end + 1]
     /\ LSN' = LSN + 1
-    /\ NextState' = "append"
+    /\ \/ NextState' = "append"
+       \/ NextState' = "crash"
     /\ PrevState' = "WE_full_new_WE"
-    /\ UNCHANGED << MaxLSN >>
+    /\ UNCHANGED << MaxLSN, REs, WEonDisk >>
+
+\* Crash: torn write : last write ignored
+CrashWhileAppend ==
+    /\ \/ PrevState = "append"
+       \/ PrevState = "WE_full_new_WE"
+    /\ NextState = "crash"
+    /\ PrevState' = "crash"
+    /\ \/ NextState' = "recovery"
+       \/ NextState' = "crash"
+    /\ LSN' = LSN - 1
+    /\ WE' = [ start |-> WE.start, end |-> WE.end - 1 ]
+    /\ UNCHANGED << MaxLSN, REs, WEonDisk >>
     
+CrashNoDataLoss ==
+    /\ NextState = "crash"
+    /\ NextState' = "recovery"
+    /\ PrevState' = "crash"
+    /\ UNCHANGED << MaxLSN, LSN, REs, WE, WEonDisk >>    
+
+\* Crash:
+CrashDataLost ==
+    /\ NextState = "crash"
+    /\ NextState' = "recovery"
+    /\ LSN' = IF LSN > (MaxLSN \div 2)
+              THEN MaxLSN \div 2
+              ELSE IF LSN > 2
+                   THEN 2
+                   ELSE 0
+    /\ REs' = LET NonCorrupt(re) == re.end <= LSN' 
+              IN SelectSeq(REs, NonCorrupt)
+    /\ UNCHANGED << MaxLSN, WE, WEonDisk >>
+
+\* After crash, we can't look at value of WEonDisk, WE
+\* We have a list of files on disk
+Recovery ==
+    /\ PrevState = "crash"
+    /\ PrevState' = "recovery"
+    /\ \/ NextState' = "append"
+       \/ NextState' = "crash"
+    /\ WEonDisk = TRUE
+    /\ UNCHANGED << MaxLSN, LSN, REs, WE, WEonDisk >>
+
 Next ==
     \/ AppendToFile
     \/ WriteExtentFullMoveToReadOnly
     \/ NewWriteExtentAppend
+    \/ CrashWhileAppend
+    \/ CrashNoDataLoss
+    \/ Recovery
 
 \* Invariants:
 
 \* Invariant 1: NoDataLoss
 \* All read only extents have non missing LSN
-\*   ReadOnlyExtents[1].start < ReadOnlyExtents[1].end + 1 == ReadOnlyExtents[2].start
-\*         < ReadOnlyExtents[2].end + 1 == ReadOnlyExtents[3].start < ...
+\*   REs[1].start < REs[1].end + 1 == REs[2].start
+\*         < REs[2].end + 1 == REs[3].start < ...
 \* write extent has latest data
-\*   LSN == WriteExtent.end >= WriteExtent.start == ReadOnlyExtents[last].end + 1
+\*   LSN == WE.end >= WE.start == REs[last].end + 1
 
 ValidReadOnlyExtents ==
-    /\ \A i \in 1..Len(ReadOnlyExtents)-1 : /\ ReadOnlyExtents[i].start < ReadOnlyExtents[i].end
-                                            /\ ReadOnlyExtents[i].end + 1 = ReadOnlyExtents[i+1].start
+    /\ \A i \in 1..Len(REs)-1 : /\ REs[i].start < REs[i].end
+                                /\ REs[i].end = REs[i+1].start
     \* In "WE_full_move_to_RE" state, 
-    \* WriteExtent does not exist on disk as it is moved to ReadOnlyExtents
-    /\ \/ PrevState = "WE_full_move_to_RE" \* Todo: Handle this case ? by WE as null
-       \/ IF Len(ReadOnlyExtents) > 0
-          THEN ReadOnlyExtents[Len(ReadOnlyExtents)].end + 1 = WriteExtent.start
+    \* WE does not exist on disk as it is moved to REs
+    /\ \/ WEonDisk = FALSE \* Todo: Handle this case ? by WE as null
+       \/ IF Len(REs) > 0
+          THEN REs[Len(REs)].end = WE.start
           ELSE 1 = 1
 
 ValidWriteExtent ==
-    /\ WriteExtent.start <= WriteExtent.end
-    /\ WriteExtent.end = LSN
+    /\ WE.start <= WE.end
+    /\ WE.end = LSN + 1
 
 NoDataLoss ==
     /\ ValidReadOnlyExtents
@@ -117,5 +165,5 @@ LSNSteps ==
     LSN < MaxLSN
 =============================================================================
 \* Modification History
-\* Last modified Sun Nov 01 23:23:47 PST 2020 by asnegi
+\* Last modified Mon Nov 02 19:48:21 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
