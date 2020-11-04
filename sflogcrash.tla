@@ -150,7 +150,7 @@ Next ==
     \/ CrashDataLost
     \/ Recovery
     \*\/ TruncateTail
-    \*\/ TruncateHead
+    \/ TruncateHead
 
 \* Invariants:
 
@@ -185,5 +185,5 @@ LSNSteps ==
 
 =============================================================================
 \* Modification History
-\* Last modified Wed Nov 04 15:02:05 PST 2020 by asnegi
+\* Last modified Wed Nov 04 15:02:46 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
