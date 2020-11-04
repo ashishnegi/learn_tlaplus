@@ -28,7 +28,7 @@ TypeOK ==
     /\ PrevState \in { "start", "append", "WE_full_move_to_RE", 
                        "WE_full_new_WE", "crash", "recovery",
                        "truncate_head", "truncate_tail" }
-    /\ MaxLSN = 10
+    /\ MaxLSN = 4
 
 Init ==
     /\ REs = <<>>
@@ -37,7 +37,7 @@ Init ==
     /\ LowLSN = 1
     /\ HighLSN = 1
     /\ PrevState = "start"
-    /\ MaxLSN = 10
+    /\ MaxLSN = 4
 
 \* Append keeps appending to WE increasing end LSN.
 \* Prev states: "append" or "WE_full_new_WE" states.
@@ -46,7 +46,7 @@ AppendToFile ==
     \* Append to file is always allowed except crash. 
     \* After crash, we first do recovery.
     /\ PrevState # "crash"
-    /\ WEonDisk = TRUE
+    /\ PrevState # "WE_full_move_to_RE"
     /\ HighLSN < MaxLSN - 1 \* Stop TLC model checker to generate more cases.
     /\ WE' = [start |-> WE.start, end |-> WE.end + 1]
     /\ HighLSN' = HighLSN + 1
@@ -128,6 +128,7 @@ Recovery ==
 \* Todo: Remove REs which are lower than LowLSN
 TruncateHead ==
     /\ PrevState # "crash"
+    /\ PrevState # "WE_full_move_to_RE"
     /\ PrevState' = "truncate_head"
     /\ LowLSN < HighLSN
     /\ LowLSN' = LowLSN + 1
@@ -136,11 +137,17 @@ TruncateHead ==
 \* TruncateTail
 TruncateTail ==
     /\ PrevState # "crash"
+    /\ PrevState # "WE_full_move_to_RE"
     /\ PrevState' = "truncate_tail"
     /\ LowLSN < HighLSN
     /\ HighLSN' = HighLSN - 1
-    /\ WE' = [start |-> WE.start, end |-> WE.end - 1]
-    /\ UNCHANGED << LowLSN, MaxLSN, REs, WEonDisk >>
+    /\ IF WE.start < WE.end
+       THEN /\ WE' = [start |-> WE.start, end |-> WE.end - 1]
+            /\ REs' = REs
+       ELSE /\ WE' = LET lastRE == REs[Len(REs)]
+                     IN [ lastRE EXCEPT !["end"] = lastRE.end - 1 ]
+            /\ REs' = SubSeq(REs, 1, Len(REs)-1)
+    /\ UNCHANGED << LowLSN, MaxLSN, WEonDisk >>
 
 Next ==
     \/ AppendToFile
@@ -150,9 +157,9 @@ Next ==
     \/ CrashNoDataLoss
     \/ CrashDataLost
     \/ Recovery
-    \*\/ TruncateTail
     \/ TruncateHead
-
+    \/ TruncateTail
+    
 \* Invariants:
 
 \* Invariant 1: NoDataLoss
@@ -164,11 +171,13 @@ Next ==
 ValidReadOnlyExtents ==
     /\ \A i \in 1..Len(REs)-1 : /\ REs[i].start < REs[i].end
                                 /\ REs[i].end = REs[i+1].start
+                                /\ REs[i].end < HighLSN
     \* In "WE_full_move_to_RE" state, 
     \* WE does not exist on disk as it is moved to REs
     /\ \/ WEonDisk = FALSE
        \/ IF Len(REs) > 0
-          THEN REs[Len(REs)].end = WE.start
+          THEN /\ REs[Len(REs)].end = WE.start
+               /\ REs[Len(REs)].end <= HighLSN
           ELSE 1 = 1
 
 ValidWriteExtent ==
@@ -186,5 +195,5 @@ LSNSteps ==
 
 =============================================================================
 \* Modification History
-\* Last modified Wed Nov 04 15:02:46 PST 2020 by asnegi
+\* Last modified Wed Nov 04 15:26:41 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
