@@ -1,1 +1,4 @@
-*.toolbox
+*.toolbox/*
+!sflogcrash.toolbox/NoDataLoss
+sflogcrash.toolbox/NoDataLoss/*
+!sflogcrash.toolbox/NoDataLoss/MC.cfg
