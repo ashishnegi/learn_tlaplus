@@ -73,7 +73,8 @@ NewWriteExtentAppend ==
     /\ WE' = [start |-> WE.end, end |-> WE.end + 1]
     /\ HighLSN' = HighLSN + 1
     /\ PrevState' = "WE_full_new_WE"
-    /\ UNCHANGED << LowLSN, MaxLSN, REs, WEonDisk >>
+    /\ WEonDisk' = TRUE
+    /\ UNCHANGED << LowLSN, MaxLSN, REs >>
 
 \* Crash: torn write : last write ignored
 CrashWhileAppend ==
