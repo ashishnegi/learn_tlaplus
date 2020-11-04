@@ -25,7 +25,9 @@ TypeOK ==
     /\ WEonDisk \in { TRUE, FALSE }
     /\ LowLSN \in 1..MaxLSN
     /\ HighLSN \in 1..MaxLSN
-    /\ PrevState \in { "start", "append", "WE_full_move_to_RE", "WE_full_new_WE", "crash", "recovery" }
+    /\ PrevState \in { "start", "append", "WE_full_move_to_RE", 
+                       "WE_full_new_WE", "crash", "recovery",
+                       "truncate_head", "truncate_tail" }
     /\ MaxLSN = 10
 
 Init ==
@@ -41,10 +43,10 @@ Init ==
 \* Prev states: "append" or "WE_full_new_WE" states.
 \* Next states: "append" or "WE_full_move_to_RE" states.  
 AppendToFile ==
-    /\ \/ PrevState = "start"
-       \/ PrevState = "append"
-       \/ PrevState = "WE_full_new_WE"
-       \/ PrevState = "recovery"
+    \* Append to file is always allowed except crash. 
+    \* After crash, we first do recovery.
+    /\ PrevState # "crash"
+    /\ WEonDisk = TRUE
     /\ HighLSN < MaxLSN - 1 \* Stop TLC model checker to generate more cases.
     /\ WE' = [start |-> WE.start, end |-> WE.end + 1]
     /\ HighLSN' = HighLSN + 1
@@ -122,10 +124,22 @@ Recovery ==
     /\ UNCHANGED << LowLSN, MaxLSN, HighLSN >>
 
 \* TruncateHead
+\* Todo: Remove REs which are lower than LowLSN
 TruncateHead ==
-    /\ PrevState = "append"
+    /\ PrevState # "crash"
+    /\ PrevState' = "truncate_head"
     /\ LowLSN < HighLSN
+    /\ LowLSN' = LowLSN + 1
+    /\ UNCHANGED << HighLSN, MaxLSN, WE, REs, WEonDisk >>
+
 \* TruncateTail
+TruncateTail ==
+    /\ PrevState # "crash"
+    /\ PrevState' = "truncate_tail"
+    /\ LowLSN < HighLSN
+    /\ HighLSN' = HighLSN - 1
+    /\ WE' = [start |-> WE.start, end |-> WE.end - 1]
+    /\ UNCHANGED << LowLSN, MaxLSN, REs, WEonDisk >>
 
 Next ==
     \/ AppendToFile
@@ -135,6 +149,8 @@ Next ==
     \/ CrashNoDataLoss
     \/ CrashDataLost
     \/ Recovery
+    \*\/ TruncateTail
+    \*\/ TruncateHead
 
 \* Invariants:
 
@@ -169,5 +185,5 @@ LSNSteps ==
 
 =============================================================================
 \* Modification History
-\* Last modified Wed Nov 04 14:48:15 PST 2020 by asnegi
+\* Last modified Wed Nov 04 15:02:05 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
