@@ -11,17 +11,20 @@ EXTENDS Integers, Sequences
 \*              start == end means no data in file.
 \* REs => sequence of read only files, which moved to read only set, after size limit.
 \* WE => current file to which logger is appending
+\* lowLSN => lowest valid LSN of the logger
+\* highLSN => highest valid LSN of the logger
 \* LSN => tracks LSN to which logger has acked write success
 \* PrevState => used for restricting the next state of the logger state machine
 \* MaxLSN => used for reducing the search space to finish running the model checker and visualizing the space graph.
-VARIABLES REs, WE, WEonDisk, LSN, PrevState, MaxLSN
+VARIABLES REs, WE, WEonDisk, lowLSN, highLSN, PrevState, MaxLSN
 
 TypeOK ==
     /\ WE \in [ start : 1..MaxLSN+1, end : 1..MaxLSN+1 ]
     /\ WE.start <= WE.end
     /\ REs \in Seq([ start: 1..MaxLSN+1, end : 1..MaxLSN+1])
     /\ WEonDisk \in { TRUE, FALSE }
-    /\ LSN \in 0..MaxLSN
+    /\ lowLSN \in 0..MaxLSN
+    /\ highLSN \in 0..MaxLSN
     /\ PrevState \in { "start", "append", "WE_full_move_to_RE", "WE_full_new_WE", "crash", "recovery" }
     /\ MaxLSN = 10
 
@@ -29,7 +32,8 @@ Init ==
     /\ REs = <<>>
     /\ WE = [start |-> 1, end |-> 1]
     /\ WEonDisk = TRUE
-    /\ LSN = 0
+    /\ lowLSN = 0
+    /\ highLSN = 0
     /\ PrevState = "start"
     /\ MaxLSN = 10
 
@@ -41,11 +45,11 @@ AppendToFile ==
        \/ PrevState = "append"
        \/ PrevState = "WE_full_new_WE"
        \/ PrevState = "recovery"
-    /\ LSN < MaxLSN  \* Stop TLC model checker to generate more cases.
+    /\ highLSN < MaxLSN  \* Stop TLC model checker to generate more cases.
     /\ WE' = [start |-> WE.start, end |-> WE.end + 1]
-    /\ LSN' = LSN + 1
+    /\ highLSN' = highLSN + 1
     /\ PrevState' = "append"
-    /\ UNCHANGED << MaxLSN, REs, WEonDisk >>
+    /\ UNCHANGED << lowLSN, MaxLSN, REs, WEonDisk >>
 
 \* Append fills up write extent file
 \* Make write extent a read only extent
@@ -55,42 +59,45 @@ WriteExtentFullMoveToReadOnly ==
     /\ PrevState = "append"
     /\ REs' = Append(REs, WE)
     /\ WEonDisk' = FALSE
-    /\ LSN' = LSN
     /\ PrevState' = "WE_full_move_to_RE"
-    /\ UNCHANGED << MaxLSN, WE >>
+    /\ UNCHANGED << lowLSN, highLSN, MaxLSN, WE >>
 
 \* Create new write extent file and open for new appends
 \* Prev states: "WE_full_move_to_RE"
 \* Next states: "append"
 NewWriteExtentAppend ==
     /\ PrevState = "WE_full_move_to_RE"
-    /\ LSN < MaxLSN
+    /\ highLSN < MaxLSN
     /\ WE' = [start |-> WE.end, end |-> WE.end + 1]
-    /\ LSN' = LSN + 1
+    /\ highLSN' = highLSN + 1
     /\ PrevState' = "WE_full_new_WE"
-    /\ UNCHANGED << MaxLSN, REs, WEonDisk >>
+    /\ UNCHANGED << lowLSN, MaxLSN, REs, WEonDisk >>
 
 \* Crash: torn write : last write ignored
 CrashWhileAppend ==
     /\ \/ PrevState = "append"
        \/ PrevState = "WE_full_new_WE"
     /\ PrevState' = "crash"
-    /\ LSN' = LSN - 1
-    /\ UNCHANGED << MaxLSN, REs, WE, WEonDisk >>
+    /\ highLSN' = highLSN - 1
+    /\ UNCHANGED << lowLSN, MaxLSN, REs, WE, WEonDisk >>
     
 CrashNoDataLoss ==
     /\ PrevState' = "crash"
-    /\ UNCHANGED << MaxLSN, LSN, REs, WE, WEonDisk >>    
+    /\ UNCHANGED << lowLSN, MaxLSN, highLSN, REs, WE, WEonDisk >>
 
 \* Crash:
+\* we lost all data after some LSN
+\* Todo: need to model - data lost in between lowLSN and highLSN
+\*       In that case, we will Fail replica in real world 
+\*       and rebuild from another source.
 CrashDataLost ==
     /\ PrevState' = "crash"
-    /\ LSN' = IF LSN > (MaxLSN \div 2)
+    /\ highLSN' = IF highLSN > (MaxLSN \div 2)
               THEN MaxLSN \div 2
-              ELSE IF LSN > 2
+              ELSE IF highLSN > 2
                    THEN 2
                    ELSE 0
-    /\ UNCHANGED << MaxLSN, REs, WE, WEonDisk >>
+    /\ UNCHANGED << lowLSN, MaxLSN, REs, WE, WEonDisk >>
 
 \* After crash, we can't look at value of WEonDisk, WE
 \* We have a list of files on disk
@@ -103,15 +110,19 @@ Recovery ==
                        ELSE IF REs[Len(REs)] = WE
                             THEN REs
                             ELSE Append(REs, WE)
-           goodREs == LET NonCorrupt(re) == (re.start <= LSN)
+           \* Don't use WE after this, only use allFiles
+           goodREs == LET NonCorrupt(re) == (re.start <= highLSN)
                       IN SelectSeq(allFiles, NonCorrupt)
        IN /\ REs' = IF Len(goodREs) > 0
                     THEN SubSeq(goodREs, 1, Len(goodREs) - 1)
                     ELSE <<>>
           /\ WE' = IF Len(goodREs) > 0
-                   THEN [ goodREs[Len(goodREs)] EXCEPT !["end"] = LSN + 1 ]
-                   ELSE [start |-> 1, end |-> LSN + 1]
-    /\ UNCHANGED << MaxLSN, LSN >>
+                   THEN [ goodREs[Len(goodREs)] EXCEPT !["end"] = highLSN + 1 ]
+                   ELSE [start |-> 1, end |-> highLSN + 1]
+    /\ UNCHANGED << lowLSN, MaxLSN, highLSN >>
+
+\* TruncateHead
+\* TruncateTail
 
 Next ==
     \/ AppendToFile
@@ -126,24 +137,23 @@ Next ==
 
 \* Invariant 1: NoDataLoss
 \* All read only extents have non missing LSN
-\*   REs[1].start < REs[1].end + 1 == REs[2].start
-\*         < REs[2].end + 1 == REs[3].start < ...
+\*   REs[1].start < REs[1].end == REs[2].start < REs[2].end == REs[3].start < ...
 \* write extent has latest data
-\*   LSN == WE.end >= WE.start == REs[last].end + 1
+\*   highLSN + 1 == WE.end >= WE.start == REs[last].end
 
 ValidReadOnlyExtents ==
     /\ \A i \in 1..Len(REs)-1 : /\ REs[i].start < REs[i].end
                                 /\ REs[i].end = REs[i+1].start
     \* In "WE_full_move_to_RE" state, 
     \* WE does not exist on disk as it is moved to REs
-    /\ \/ WEonDisk = FALSE \* Todo: Handle this case ? by WE as null
+    /\ \/ WEonDisk = FALSE
        \/ IF Len(REs) > 0
           THEN REs[Len(REs)].end = WE.start
           ELSE 1 = 1
 
 ValidWriteExtent ==
     /\ WE.start <= WE.end
-    /\ WE.end = LSN + 1
+    /\ WE.end = highLSN + 1
 
 NoDataLoss ==
     \/ PrevState = "crash" \* No valid state during crash
@@ -152,8 +162,9 @@ NoDataLoss ==
 
 \* Change below value to see different steps taken for particular test run.
 LSNSteps ==
-    LSN < MaxLSN - 1
+    highLSN < MaxLSN - 1
+
 =============================================================================
 \* Modification History
-\* Last modified Tue Nov 03 14:21:03 PST 2020 by asnegi
+\* Last modified Wed Nov 04 14:38:02 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
