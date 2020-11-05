@@ -28,7 +28,7 @@ TypeOK ==
     /\ PrevState \in { "start", "append", "WE_full_move_to_RE", 
                        "WE_full_new_WE", "crash", "recovery",
                        "truncate_head", "truncate_tail" }
-    /\ MaxLSN = 4
+    /\ MaxLSN = 10
 
 Init ==
     /\ REs = <<>>
@@ -37,7 +37,7 @@ Init ==
     /\ LowLSN = 1
     /\ HighLSN = 1
     /\ PrevState = "start"
-    /\ MaxLSN = 4
+    /\ MaxLSN = 10
 
 \* Append keeps appending to WE increasing end LSN.
 \* Prev states: "append" or "WE_full_new_WE" states.
@@ -88,6 +88,11 @@ CrashNoDataLoss ==
     /\ PrevState' = "crash"
     /\ UNCHANGED << LowLSN, MaxLSN, HighLSN, REs, WE, WEonDisk >>
 
+MaxOf2(a, b) ==
+    IF a < b
+    THEN b
+    ELSE a
+
 \* Crash:
 \* we lost all data after some LSN
 \* Todo: need to model - data lost in between LowLSN and HighLSN
@@ -96,10 +101,10 @@ CrashNoDataLoss ==
 CrashDataLost ==
     /\ PrevState' = "crash"
     /\ HighLSN' = IF HighLSN > (MaxLSN \div 2)
-              THEN MaxLSN \div 2
-              ELSE IF HighLSN > 2
-                   THEN 2
-                   ELSE 1
+                  THEN MaxOf2(LowLSN, MaxLSN \div 2)
+                  ELSE IF HighLSN > 3
+                  THEN MaxOf2(LowLSN, 3)
+                  ELSE MaxOf2(LowLSN, 1)
     /\ UNCHANGED << LowLSN, MaxLSN, REs, WE, WEonDisk >>
 
 \* After crash, we can't look at value of WEonDisk, WE
@@ -132,7 +137,9 @@ TruncateHead ==
     /\ PrevState' = "truncate_head"
     /\ LowLSN < HighLSN
     /\ LowLSN' = LowLSN + 1
-    /\ UNCHANGED << HighLSN, MaxLSN, WE, REs, WEonDisk >>
+    /\ REs' = LET nonTruncatedRE(re) == re.end > LowLSN'
+              IN SelectSeq(REs, nonTruncatedRE)
+    /\ UNCHANGED << HighLSN, MaxLSN, WE, WEonDisk >>
 
 \* TruncateTail
 TruncateTail ==
@@ -172,12 +179,18 @@ ValidReadOnlyExtents ==
     /\ \A i \in 1..Len(REs)-1 : /\ REs[i].start < REs[i].end
                                 /\ REs[i].end = REs[i+1].start
                                 /\ REs[i].end < HighLSN
+                                /\ \/ REs[i].start >= LowLSN
+                                   \/ REs[i].end > LowLSN
     \* In "WE_full_move_to_RE" state, 
     \* WE does not exist on disk as it is moved to REs
     /\ \/ WEonDisk = FALSE
        \/ IF Len(REs) > 0
-          THEN /\ REs[Len(REs)].end = WE.start
-               /\ REs[Len(REs)].end <= HighLSN
+          THEN LET lastRE == REs[Len(REs)] 
+               IN /\ lastRE.end = WE.start
+                  /\ lastRE.start < lastRE.end
+                  /\ lastRE.end <= HighLSN
+                  /\ \/ lastRE.start >= LowLSN
+                     \/ lastRE.end > LowLSN
           ELSE 1 = 1
 
 ValidWriteExtent ==
@@ -188,6 +201,7 @@ NoDataLoss ==
     \/ PrevState = "crash" \* No valid state during crash
     \/ /\ ValidReadOnlyExtents
        /\ ValidWriteExtent
+       /\ LowLSN <= HighLSN
 
 \* Change below value to see different steps taken for particular test run.
 LSNSteps ==
@@ -195,5 +209,5 @@ LSNSteps ==
 
 =============================================================================
 \* Modification History
-\* Last modified Wed Nov 04 15:26:41 PST 2020 by asnegi
+\* Last modified Wed Nov 04 18:05:16 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
