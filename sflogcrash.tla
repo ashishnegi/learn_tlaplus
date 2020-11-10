@@ -168,12 +168,13 @@ Recovery ==
     /\ IF MetadataFile.cleanShutdown
        THEN /\ REs' = REs
             /\ WE' = WE
-       ELSE LET allFiles == IF WEonDisk
-                            THEN Append(REs, WE)
-                            ELSE REs
-                            (* TODO: use below: [fId \in MetadataFile.fileIds |-> 
-                                LET SameId(r) == r.Id = fId
-                                IN SelectSeq(REs \union {WE}, SameId)]*)
+       ELSE LET allFiles == LET PresentInMetadataFiles(r) == 
+                                    LET SameId(r2Id) == r.id = r2Id
+                                    IN Len(SelectSeq(MetadataFile.fileIds, SameId)) > 0
+                            IN SelectSeq(IF WEonDisk 
+                                         THEN Append(REs, WE)
+                                         ELSE REs, 
+                                         PresentInMetadataFiles)
                 lowLSN == MetadataFile.headLSN
                 lastWE == LET lastWEId == MetadataFile.fileIds[Len(MetadataFile.fileIds)]
                               SameId(r) == r.id = lastWEId
@@ -342,5 +343,5 @@ CrashDataLost ==
     /\ UNCHANGED << LowLSN, MaxNum, REs, WE, WEonDisk, TornWrite>>
 =============================================================================
 \* Modification History
-\* Last modified Tue Nov 10 15:03:21 PST 2020 by asnegi
+\* Last modified Tue Nov 10 15:16:49 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
