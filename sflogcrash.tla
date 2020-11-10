@@ -282,28 +282,20 @@ Next ==
 \*   HighLSN == WE.end >= WE.start == REs[last].end
 
 \* [dangling_extent]  [lowLSN, highLSN - valid range]  [dangling_extent]
-NotDanglingExtent(ex, lowLSN, highLSN) ==
-    ~ ( \/ ex.start >= highLSN
-        \/ ex.end <= lowLSN)
-        
 OrderedExtent(ex1, ex2, highLSN) ==
     /\ ex1.start < ex1.end
     /\ ex1.end = ex2.start
     /\ ex1.end <= highLSN
 
-ValidReadOnlyExtents(CheckDangling) ==
+ValidReadOnlyExtents ==
     /\ \A i \in 1..Len(REs)-1 : /\ OrderedExtent(REs[i], REs[i+1], HighLSN)
                                 /\ REs[i].end < HighLSN
-                                /\ \/ ~ CheckDangling
-                                   \/ NotDanglingExtent(REs[i], LowLSN, HighLSN)
     \* In "WE_full_move_to_RE" state, 
     \* WE does not exist on disk as it is moved to REs
     /\ \/ WEonDisk = FALSE
        \/ IF Len(REs) > 0
           THEN LET lastRE == REs[Len(REs)] 
                IN /\ OrderedExtent(lastRE, WE, HighLSN)
-                  /\ \/ ~ CheckDangling
-                     \/ NotDanglingExtent(lastRE, LowLSN, HighLSN)
           ELSE 1 = 1
 
 ValidWriteExtent ==
@@ -319,9 +311,18 @@ NoDataLoss ==
     \/ PrevState = "truncate_tail_p1"
     \/ LET checkDangling == ~ (\/ PrevState = "truncate_head_p1"
                                \/ PrevState = "truncate_tail_p1")
-       IN /\ ValidReadOnlyExtents(checkDangling)
+       IN /\ ValidReadOnlyExtents
           /\ ValidWriteExtent
           /\ LowLSN <= HighLSN
+
+\* No file/extent present on disk which is not required.
+NotDanglingExtent(ex, lowLSN, highLSN) ==
+    ~ ( \/ ex.start >= highLSN
+        \/ ex.end <= lowLSN)
+
+NoDanglingExtents ==
+    \/ PrevState \in {"crash", "truncate_head_p1", "truncate_tail_p1" }
+    \/ \A i \in 1..Len(REs) : NotDanglingExtent(REs[i], LowLSN, HighLSN)
 
 \* Change below value to see different steps taken for particular test run.
 LSNSteps ==
@@ -343,5 +344,5 @@ CrashDataLost ==
     /\ UNCHANGED << LowLSN, MaxNum, REs, WE, WEonDisk, TornWrite>>
 =============================================================================
 \* Modification History
-\* Last modified Tue Nov 10 15:16:49 PST 2020 by asnegi
+\* Last modified Tue Nov 10 15:24:27 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
