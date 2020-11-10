@@ -303,18 +303,13 @@ ValidWriteExtent ==
     /\ WE.end = HighLSN
 
 NoDataLoss ==
-    \/ PrevState = "crash" \* No valid state during crash
-    \/ PrevState = "truncate_head_p1"
-    \* Todo: Find what is happening ?
-    \*   Commenting below line fails the Invariant `NoDataLoss` but does not show the
-    \*  steps of failure in TLC Errors window.
-    \/ PrevState = "truncate_tail_p1"
-    \/ LET checkDangling == ~ (\/ PrevState = "truncate_head_p1"
-                               \/ PrevState = "truncate_tail_p1")
-       IN /\ ValidReadOnlyExtents
-          /\ ValidWriteExtent
-          /\ LowLSN <= HighLSN
+    \* Not valid state during crash or truncate_head_phase1
+    \/ PrevState \in { "crash", "truncate_tail_p1" }
+    \/ /\ ValidReadOnlyExtents
+       /\ ValidWriteExtent
+       /\ LowLSN <= HighLSN
 
+\* Invariant 2: No dangling files on disk
 \* No file/extent present on disk which is not required.
 NotDanglingExtent(ex, lowLSN, highLSN) ==
     ~ ( \/ ex.start >= highLSN
@@ -344,5 +339,5 @@ CrashDataLost ==
     /\ UNCHANGED << LowLSN, MaxNum, REs, WE, WEonDisk, TornWrite>>
 =============================================================================
 \* Modification History
-\* Last modified Tue Nov 10 15:24:27 PST 2020 by asnegi
+\* Last modified Tue Nov 10 15:30:35 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
