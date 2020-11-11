@@ -147,17 +147,8 @@ filterSeq(seqs, F(_), result) ==
                    THEN Append(result, Head(seqs))
                    ELSE result)
 
-RECURSIVE mapSeq(_,_,_)
-mapSeq(seqs, M(_), result) ==
-    IF seqs = <<>>
-    THEN result
-    ELSE mapSeq(Tail(seqs), 
-                   M, 
-                   Append(result, M(Head(seqs))))
-
 GetAllIds(files) ==
-    LET getId(r) == r.id
-    IN mapSeq(files, getId, <<>>)
+    [ i \in 1..Len(files) |-> files[i].id ]
 
 GetMetadataFiles ==
     LET PresentInMetadataFiles(r) == 
@@ -412,5 +403,5 @@ CrashDataLost ==
     /\ UNCHANGED << LowLSN, MaxNum, REs, WE, WEonDisk, TornWrite>>
 =============================================================================
 \* Modification History
-\* Last modified Tue Nov 10 22:37:28 PST 2020 by asnegi
+\* Last modified Wed Nov 11 14:35:38 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
