@@ -266,7 +266,7 @@ TruncateTailP1 ==
 TruncateTailP2 ==
     /\ PrevState = "truncate_tail_p1"
     /\ PrevState' = "truncate_tail"
-    /\ IF WE.start < WE.end
+    /\ IF WE.start < WE.end \* WE has data
        THEN /\ WE' = [WE EXCEPT !.end = WE.end - 1]
             /\ REs' = REs
        ELSE /\ WE' = LET lastRE == REs[Len(REs)]
@@ -364,6 +364,13 @@ MetadataFileCorrect ==
        \* Todo: What should still be correct in clean shutdown case ?
        ELSE 1 = 1
 
+\* TruncateTail is not called on empty WE for truncating data upto REs
+\* Todo: This is not failing - This case is not handled.
+TruncateTailCalledOnEmptyWE ==
+    ~ ( /\ TTIP = TRUE
+        /\ WE.start = WE.end
+      )
+    
 \* Change below value to see different steps taken for particular test run.
 LSNSteps ==
     HighLSN < MaxNum
@@ -389,5 +396,5 @@ CrashDataLost ==
     /\ UNCHANGED << LowLSN, MaxNum, REs, WE, WEonDisk, TornWrite>>
 =============================================================================
 \* Modification History
-\* Last modified Tue Nov 10 21:50:18 PST 2020 by asnegi
+\* Last modified Tue Nov 10 21:58:09 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
