@@ -83,6 +83,9 @@ AppendToFile ==
     /\ PrevState' = "append"
     /\ UNCHANGED << LowLSN, MaxNum, REs, WEonDisk, MetadataFile, TornWrite, THIP, TTIP >>
 
+\* Todo : Rethink on how we have broken down "WriteExtentFull" case.
+\*        As it is not crash friendly - 
+\*        as we have 2 atomic operations in NewWriteExtentAppend.
 \* Append fills up write extent file
 \* Make write extent a read only extent
 \* Todo: Is "Append" only valid previous state ?
@@ -176,6 +179,7 @@ Recovery ==
     /\ IF MetadataFile.cleanShutdown
        THEN /\ REs' = REs
             /\ WE' = WE
+            /\ MetadataFile' = MetadataFile
        ELSE LET allFiles == GetMetadataFiles
                 lowLSN == MetadataFile.headLSN
                 lastWE == LET lastWEId == MetadataFile.fileIds[Len(MetadataFile.fileIds)]
@@ -193,33 +197,37 @@ Recovery ==
                               ELSE IF lastWE.version < MetadataFile.lastTailVersion
                               THEN MetadataFile.lastTailLSN
                               ELSE lastValidWrite
-                goodREs == LET ValidFile(f) == ~ (\/ (f.end <= lowLSN) \/ (f.start > highLSN))
-                           IN SelectSeq(allFiles, ValidFile)
-            IN /\ REs' = IF Len(goodREs) > 0
-                         THEN SubSeq(goodREs, 1, Len(goodREs) - 1)
-                         ELSE <<>>
-               /\ WE' = IF Len(goodREs) > 0
-                        \* From WE, remove all data higher than metadataFile.lastTailVersion
-                        THEN [goodREs[Len(goodREs)] EXCEPT !.end = highLSN,
-                                                           !.version = MetadataFile.lastTailVersion]
-                        ELSE [id |-> 1, start |-> lowLSN, end |-> highLSN, 
+                goodExtents == LET ValidFile(f) == ~ (\/ (f.end <= lowLSN) \/ (f.start > highLSN))
+                               IN SelectSeq(allFiles, ValidFile)
+                cleanState == Len(goodExtents) =  0
+            IN IF cleanState
+               THEN /\ REs' = <<>>
+                    /\ WE' = [id |-> 1, start |-> lowLSN, end |-> highLSN, 
                               version |-> MetadataFile.lastTailVersion]
+                    /\ MetadataFile' = [MetadataFile EXCEPT !.fileIds = <<1>>]
+               ELSE /\ REs' = SubSeq(goodExtents, 1, Len(goodExtents) - 1)
+                    /\ WE' = [goodExtents[Len(goodExtents)] 
+                                EXCEPT !.end = highLSN,
+                                       !.version = MetadataFile.lastTailVersion]
+                    /\ MetadataFile' = MetadataFile
     \* Reset variables correctly so that appends can work.
     /\ PrevState' = "recovery"
     /\ WEonDisk' = TRUE
     /\ THIP' = FALSE 
     /\ TTIP' = FALSE
     /\ TornWrite' = FALSE
-    /\ UNCHANGED << LowLSN, MaxNum, HighLSN, MetadataFile >>
+    /\ UNCHANGED << LowLSN, MaxNum, HighLSN >>
         
 \* TruncateHead
 \* Phase1 : Update metadata file first.
 \* We broke truncate head in 2 phases to simulate a crash in between 2 stages.
 \* Also, other states like appends can happen in between 2 phases.
-\* Todo: Is "Append" only valid previous state ?
 TruncateHeadP1 ==
-    /\ \/ PrevState = "append"
-       \/ PrevState = "WE_full_new_WE"
+    \* truncate_head waits for new WE to exist after full WE.
+    \* Todo: Above is possibly bad as even starting the TruncateHead is waiting.
+    \*       It is not very bad because WE_full_move_to_RE has high priority 
+    \*       and should finish fast.
+    /\ PrevState \notin { "crash", "close", "WE_full_move_to_RE" }
     /\ LowLSN < HighLSN
     /\ PrevState' = "truncate_head_p1"
     /\ LowLSN' = LowLSN + 1
@@ -364,13 +372,21 @@ MetadataFileCorrect ==
        \* Todo: What should still be correct in clean shutdown case ?
        ELSE 1 = 1
 
+\* Invariants that should fail - Signifies that we have handled these cases.
+
 \* TruncateTail is not called on empty WE for truncating data upto REs
 \* Todo: This is not failing - This case is not handled.
+\* Using TTIP is not correct as that means that TT has already begin.
 TruncateTailCalledOnEmptyWE ==
     ~ ( /\ TTIP = TRUE
         /\ WE.start = WE.end
       )
-    
+
+TruncateHeadCalledOnEmptyWE == 
+    ~ ( /\ THIP = TRUE
+        /\ WE.start = WE.end
+      )
+
 \* Change below value to see different steps taken for particular test run.
 LSNSteps ==
     HighLSN < MaxNum
@@ -396,5 +412,5 @@ CrashDataLost ==
     /\ UNCHANGED << LowLSN, MaxNum, REs, WE, WEonDisk, TornWrite>>
 =============================================================================
 \* Modification History
-\* Last modified Tue Nov 10 21:58:09 PST 2020 by asnegi
+\* Last modified Tue Nov 10 22:37:28 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
