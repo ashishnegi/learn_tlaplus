@@ -66,8 +66,6 @@ Init ==
     /\ MaxNum = 7
 
 \* Append keeps appending to WE increasing end LSN.
-\* Prev states: "append" or "WE_full_new_WE" states.
-\* Next states: "append" or "WE_full_move_to_RE" states.  
 AppendToFile ==
     \* Append to file is always allowed except crash. 
     \* After crash, we first do recovery.
@@ -87,8 +85,8 @@ AppendToFile ==
 
 \* Append fills up write extent file
 \* Make write extent a read only extent
-\* Prev states: "append"
-\* Next states: "WE_full_new_WE"
+\* Todo: Is "Append" only valid previous state ?
+\*       Given that we append in next state : NewWriteExtentAppend ?
 WriteExtentFullMoveToReadOnly ==
     /\ PrevState = "append"
     /\ REs' = Append(REs, WE)
@@ -97,8 +95,7 @@ WriteExtentFullMoveToReadOnly ==
     /\ UNCHANGED << LowLSN, HighLSN, MaxNum, WE, MetadataFile, TornWrite, THIP, TTIP >>
 
 \* Create new write extent file and open for new appends
-\* Prev states: "WE_full_move_to_RE"
-\* Next states: "append"
+\* Prev state only: "WE_full_move_to_RE"
 NewWriteExtentAppend ==
     /\ PrevState = "WE_full_move_to_RE"
     /\ HighLSN < MaxNum - 1
@@ -127,7 +124,7 @@ CrashNoDataLoss ==
 Close ==
     /\ PrevState # "crash"
     \* Close waits for workflows to finish: 
-    \*    we_to_re, truncate_head, truncate_tail
+    \*    WE_full_to_RE, truncate_head, truncate_tail
     /\ WEonDisk = TRUE
     /\ TTIP = FALSE
     /\ THIP = FALSE
@@ -218,6 +215,8 @@ Recovery ==
 \* TruncateHead
 \* Phase1 : Update metadata file first.
 \* We broke truncate head in 2 phases to simulate a crash in between 2 stages.
+\* Also, other states like appends can happen in between 2 phases.
+\* Todo: Is "Append" only valid previous state ?
 TruncateHeadP1 ==
     /\ \/ PrevState = "append"
        \/ PrevState = "WE_full_new_WE"
@@ -235,7 +234,7 @@ TruncateHeadP1 ==
 TruncateHeadP2 ==
     /\ \/ PrevState = "truncate_head_p1"
        \/ /\ THIP = TRUE
-          /\ PrevState # "crash" \* Only recovery runs after crash
+          /\ PrevState # "crash" \* After crash, only recovery runs
     /\ PrevState' = "truncate_head"
     /\ REs' = LET nonTruncatedRE(re) == re.end > LowLSN
               IN SelectSeq(REs, nonTruncatedRE)
@@ -247,6 +246,8 @@ TruncateHeadP2 ==
 \* We broke truncate tail in 2 phases to simulate a crash in between 2 stages.
 \* Update metadata file first:
 \* If we crash after updating metadata file, we can truncate tail of WE on recovery.
+\* Other valid states like appends can't run between 2 phases.
+\* Todo: Is "Append" only valid previous state ?
 TruncateTailP1 ==
     /\ \/ PrevState = "append"
        \/ PrevState = "WE_full_new_WE"
@@ -286,8 +287,9 @@ Next ==
     \/ TruncateHeadP2
     \/ TruncateTailP1
     \/ TruncateTailP2
-    \* Not modelling Data Loss. I am not sure, if we should just fail to open if we find we lost data so that
-    \* we build from new replica.    
+    \* Not modelling Data Loss. 
+    \* I am not sure, if we should just fail to open if we find we lost data 
+    \*   so that we build from new replica.    
     \* \/ CrashDataLost
     
 \* Invariants:
@@ -310,8 +312,7 @@ ValidReadOnlyExtents ==
     \* In "WE_full_move_to_RE" state, WE does not exist on disk as it is moved to REs
     /\ \/ WEonDisk = FALSE
        \/ IF Len(REs) > 0
-          THEN LET lastRE == REs[Len(REs)] 
-               IN /\ OrderedExtent(lastRE, WE, HighLSN)
+          THEN OrderedExtent(REs[Len(REs)], WE, HighLSN)
           ELSE 1 = 1
 
 ValidWriteExtent ==
@@ -326,7 +327,7 @@ MetadataExtentsCoverDataRange ==
        /\ lastFile.end >= HighLSN
 
 NoDataLoss ==
-    \* Not valid state during crash or truncate_head_phase1
+    \* Not valid state during crash or truncate_tail_phase1
     \/ PrevState \in { "crash", "truncate_tail_p1" }
     \/ TTIP = TRUE \* TruncateTail in progress
     \/ /\ ValidReadOnlyExtents
@@ -353,7 +354,7 @@ NoDanglingExtents ==
 
 \* Todo: Correctness of MetadataFile:
 \*   1. FileIds should be in increasing order
-\*   2. 
+\*   2. HeadLSN should be same as Expected LowLSN
 MetadataFileCorrect ==
     /\ \A i \in 1..Len(MetadataFile.fileIds)-1 : 
                 MetadataFile.fileIds[i] < MetadataFile.fileIds[i+1]
@@ -388,5 +389,5 @@ CrashDataLost ==
     /\ UNCHANGED << LowLSN, MaxNum, REs, WE, WEonDisk, TornWrite>>
 =============================================================================
 \* Modification History
-\* Last modified Tue Nov 10 21:32:28 PST 2020 by asnegi
+\* Last modified Tue Nov 10 21:50:18 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
