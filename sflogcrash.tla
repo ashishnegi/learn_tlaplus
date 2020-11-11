@@ -28,7 +28,10 @@ EXTENDS Integers, Sequences
 \*              Handle crash after each step in Recovery.
 
 \* TLA+ spec : Look at MetadataFile info to make decision during recovery
-VARIABLES REs, WE, WEonDisk, LowLSN, HighLSN, PrevState, MaxNum, MetadataFile, TornWrite
+VARIABLES REs, WE, WEonDisk, LowLSN, HighLSN, PrevState, MaxNum, MetadataFile, 
+          TornWrite, 
+          THIP, \* TruncateHeadInProgress
+          TTIP \* TruncateTailInProgress
 
 TypeOK ==
     /\ WE \in [ id: 1..MaxNum, start : 1..MaxNum, end : 1..MaxNum, version : 1..MaxNum ]
@@ -44,6 +47,8 @@ TypeOK ==
     /\ MetadataFile \in [ headLSN : 1..MaxNum, lastTailLSN : 1..MaxNum, lastTailVersion : 1..MaxNum, 
                           cleanShutdown : { TRUE, FALSE }, fileIds : Seq(1..MaxNum) ]
     /\ TornWrite \in { TRUE, FALSE }
+    /\ THIP \in { TRUE, FALSE }
+    /\ TTIP \in { TRUE, FALSE }
     /\ MaxNum = 7
 
 Init ==
@@ -56,6 +61,8 @@ Init ==
     /\ MetadataFile = [headLSN |-> 1, lastTailLSN |-> 1, lastTailVersion |-> 1, 
                        cleanShutdown |-> FALSE, fileIds |-> <<1>> ]
     /\ TornWrite = FALSE
+    /\ THIP = FALSE
+    /\ TTIP = FALSE
     /\ MaxNum = 7
 
 \* Append keeps appending to WE increasing end LSN.
@@ -67,17 +74,16 @@ AppendToFile ==
     /\ PrevState # "crash"
     /\ PrevState # "WE_full_move_to_RE"
     /\ PrevState # "close"
-    \* Todo : remove truncate_head_p1 as append can happen after truncate_head acks
-    \* Invariant of dangling file fails.
-    /\ PrevState # "truncate_head_p1"
-    /\ PrevState # "truncate_tail_p1"
+    /\ WEonDisk = TRUE \* should have writeable file on disk
+    \* No writes allowed while truncate_tail is in progress.
+    /\ TTIP = FALSE
     /\ HighLSN < MaxNum - 1 \* Stop TLC model checker to generate more cases.
     /\ WE' = [WE EXCEPT !.end = WE.end + 1,
              \* Next write after TruncateTail will append to file with new version number.
                         !.version = MetadataFile.lastTailVersion]
     /\ HighLSN' = HighLSN + 1
     /\ PrevState' = "append"
-    /\ UNCHANGED << LowLSN, MaxNum, REs, WEonDisk, MetadataFile, TornWrite >>
+    /\ UNCHANGED << LowLSN, MaxNum, REs, WEonDisk, MetadataFile, TornWrite, THIP, TTIP >>
 
 \* Append fills up write extent file
 \* Make write extent a read only extent
@@ -88,7 +94,7 @@ WriteExtentFullMoveToReadOnly ==
     /\ REs' = Append(REs, WE)
     /\ WEonDisk' = FALSE
     /\ PrevState' = "WE_full_move_to_RE"
-    /\ UNCHANGED << LowLSN, HighLSN, MaxNum, WE, MetadataFile, TornWrite >>
+    /\ UNCHANGED << LowLSN, HighLSN, MaxNum, WE, MetadataFile, TornWrite, THIP, TTIP >>
 
 \* Create new write extent file and open for new appends
 \* Prev states: "WE_full_move_to_RE"
@@ -101,7 +107,7 @@ NewWriteExtentAppend ==
     /\ PrevState' = "WE_full_new_WE"
     /\ WEonDisk' = TRUE
     /\ MetadataFile' = [MetadataFile EXCEPT !.fileIds = Append(MetadataFile.fileIds, WE'.id)]
-    /\ UNCHANGED << LowLSN, MaxNum, REs, TornWrite >>
+    /\ UNCHANGED << LowLSN, MaxNum, REs, TornWrite, THIP, TTIP >>
 
 \* Crash: torn write : last write ignored
 CrashWhileAppend ==
@@ -111,29 +117,26 @@ CrashWhileAppend ==
     /\ HighLSN' = HighLSN - 1
     /\ TornWrite' = TRUE
     /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = FALSE]
-    /\ UNCHANGED << LowLSN, MaxNum, REs, WE, WEonDisk >>
+    /\ UNCHANGED << LowLSN, MaxNum, REs, WE, WEonDisk, THIP, TTIP >>
     
 CrashNoDataLoss ==
     /\ PrevState' = "crash"
     /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = FALSE]
-    /\ UNCHANGED << LowLSN, MaxNum, HighLSN, REs, WE, WEonDisk, TornWrite>>
+    /\ UNCHANGED << LowLSN, MaxNum, HighLSN, REs, WE, WEonDisk, TornWrite, THIP, TTIP >>
 
 Close ==
     /\ PrevState # "crash"
-    /\ PrevState # "WE_full_move_to_RE"
-    /\ PrevState # "truncate_head_p1" \* Possibly can be avoided.
-    /\ PrevState # "truncate_tail_p1"
+    \* Close waits for workflows to finish: 
+    \*    we_to_re, truncate_head, truncate_tail
+    /\ WEonDisk = TRUE
+    /\ TTIP = FALSE
+    /\ THIP = FALSE
     /\ PrevState' = "close"
     /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = TRUE]
-    /\ UNCHANGED << LowLSN, MaxNum, HighLSN, REs, WE, WEonDisk, TornWrite >>
+    /\ UNCHANGED << LowLSN, MaxNum, HighLSN, REs, WE, WEonDisk, TornWrite, THIP, TTIP >>
     
 
-MaxOf2(a, b) ==
-    IF a < b
-    THEN b
-    ELSE a
-
-\* Helper functions
+\* Helper functions -- begin
 RECURSIVE filterSeq(_,_,_)
 filterSeq(seqs, F(_), result) ==
     IF seqs = <<>>
@@ -156,25 +159,27 @@ GetAllIds(files) ==
     LET getId(r) == r.id
     IN mapSeq(files, getId, <<>>)
 
-\* Helper functions end    
+GetMetadataFiles ==
+    LET PresentInMetadataFiles(r) == 
+            LET SameId(r2Id) == r.id = r2Id
+            IN Len(SelectSeq(MetadataFile.fileIds, SameId)) > 0
+    IN SelectSeq(IF WEonDisk 
+                 THEN Append(REs, WE)
+                 ELSE REs, 
+                 PresentInMetadataFiles)
+
+\* Helper functions -- end    
 
 \* After crash, we can't look at value of WEonDisk, WE
 \* We have a list of files on disk
+\* Recovery happens on Open
 Recovery ==
     /\ \/ PrevState = "crash"
        \/ PrevState = "close"
-    /\ PrevState' = "recovery"
-    /\ WEonDisk' = TRUE
     /\ IF MetadataFile.cleanShutdown
        THEN /\ REs' = REs
             /\ WE' = WE
-       ELSE LET allFiles == LET PresentInMetadataFiles(r) == 
-                                    LET SameId(r2Id) == r.id = r2Id
-                                    IN Len(SelectSeq(MetadataFile.fileIds, SameId)) > 0
-                            IN SelectSeq(IF WEonDisk 
-                                         THEN Append(REs, WE)
-                                         ELSE REs, 
-                                         PresentInMetadataFiles)
+       ELSE LET allFiles == GetMetadataFiles
                 lowLSN == MetadataFile.headLSN
                 lastWE == LET lastWEId == MetadataFile.fileIds[Len(MetadataFile.fileIds)]
                               SameId(r) == r.id = lastWEId
@@ -191,17 +196,22 @@ Recovery ==
                               ELSE IF lastWE.version < MetadataFile.lastTailVersion
                               THEN MetadataFile.lastTailLSN
                               ELSE lastValidWrite
-                goodREs == LET ValidFile(re) == ~ (\/ (re.end <= lowLSN) \/ (re.start > highLSN))
+                goodREs == LET ValidFile(f) == ~ (\/ (f.end <= lowLSN) \/ (f.start > highLSN))
                            IN SelectSeq(allFiles, ValidFile)
             IN /\ REs' = IF Len(goodREs) > 0
                          THEN SubSeq(goodREs, 1, Len(goodREs) - 1)
                          ELSE <<>>
                /\ WE' = IF Len(goodREs) > 0
-                        \* From last file, remove all data higher than metadataFile.lastTailVersion
+                        \* From WE, remove all data higher than metadataFile.lastTailVersion
                         THEN [goodREs[Len(goodREs)] EXCEPT !.end = highLSN,
                                                            !.version = MetadataFile.lastTailVersion]
                         ELSE [id |-> 1, start |-> lowLSN, end |-> highLSN, 
                               version |-> MetadataFile.lastTailVersion]
+    \* Reset variables correctly so that appends can work.
+    /\ PrevState' = "recovery"
+    /\ WEonDisk' = TRUE
+    /\ THIP' = FALSE 
+    /\ TTIP' = FALSE
     /\ TornWrite' = FALSE
     /\ UNCHANGED << LowLSN, MaxNum, HighLSN, MetadataFile >>
         
@@ -219,14 +229,18 @@ TruncateHeadP1 ==
        IN MetadataFile' = [MetadataFile EXCEPT !.headLSN = LowLSN', 
                                             !.lastTailLSN = HighLSN,
                                             !.fileIds = GetAllIds(Append(newREs, WE))]
-    /\ UNCHANGED << HighLSN, MaxNum, REs, WE, WEonDisk, TornWrite >>
+    /\ THIP' = TRUE
+    /\ UNCHANGED << HighLSN, MaxNum, REs, WE, WEonDisk, TornWrite, TTIP >>
 
 TruncateHeadP2 ==
-    /\ PrevState = "truncate_head_p1"
+    /\ \/ PrevState = "truncate_head_p1"
+       \/ /\ THIP = TRUE
+          /\ PrevState # "crash" \* Only recovery runs after crash
     /\ PrevState' = "truncate_head"
     /\ REs' = LET nonTruncatedRE(re) == re.end > LowLSN
               IN SelectSeq(REs, nonTruncatedRE)
-    /\ UNCHANGED << LowLSN, HighLSN, MaxNum, WE, WEonDisk, MetadataFile, TornWrite >>    
+    /\ THIP' = FALSE
+    /\ UNCHANGED << LowLSN, HighLSN, MaxNum, WE, WEonDisk, MetadataFile, TornWrite, TTIP >>    
     
 \* TruncateTailP1 :
 \* Phase1 : Update metadata file first.
@@ -236,14 +250,16 @@ TruncateHeadP2 ==
 TruncateTailP1 ==
     /\ \/ PrevState = "append"
        \/ PrevState = "WE_full_new_WE"
+    /\ TTIP = FALSE \* Only one truncate tail allowed at a time.
     /\ LowLSN < HighLSN
     /\ MetadataFile.lastTailVersion < MaxNum - 1
     /\ PrevState' = "truncate_tail_p1"
     /\ HighLSN' = HighLSN - 1
+    /\ TTIP' = TRUE
     /\ MetadataFile' = [MetadataFile EXCEPT !.lastTailLSN = HighLSN',
                                             !.lastTailVersion = MetadataFile.lastTailVersion + 1,
                                             !.fileIds = GetAllIds(Append(REs, WE))]
-    /\ UNCHANGED << LowLSN, WE, REs, MaxNum, WEonDisk, TornWrite >>
+    /\ UNCHANGED << LowLSN, WE, REs, MaxNum, WEonDisk, TornWrite, THIP >>
 
 \* Now, zero WE file's tail in Phase 2.
 TruncateTailP2 ==
@@ -255,7 +271,8 @@ TruncateTailP2 ==
        ELSE /\ WE' = LET lastRE == REs[Len(REs)]
                      IN [ lastRE EXCEPT !.end = lastRE.end - 1]
             /\ REs' = SubSeq(REs, 1, Len(REs)-1)
-    /\ UNCHANGED << LowLSN, HighLSN, MaxNum, WEonDisk, MetadataFile, TornWrite >>
+    /\ TTIP' = FALSE
+    /\ UNCHANGED << LowLSN, HighLSN, MaxNum, WEonDisk, MetadataFile, TornWrite, THIP >>
 
 Next ==
     \/ AppendToFile
@@ -290,8 +307,7 @@ OrderedExtent(ex1, ex2, highLSN) ==
 ValidReadOnlyExtents ==
     /\ \A i \in 1..Len(REs)-1 : /\ OrderedExtent(REs[i], REs[i+1], HighLSN)
                                 /\ REs[i].end < HighLSN
-    \* In "WE_full_move_to_RE" state, 
-    \* WE does not exist on disk as it is moved to REs
+    \* In "WE_full_move_to_RE" state, WE does not exist on disk as it is moved to REs
     /\ \/ WEonDisk = FALSE
        \/ IF Len(REs) > 0
           THEN LET lastRE == REs[Len(REs)] 
@@ -302,22 +318,50 @@ ValidWriteExtent ==
     /\ WE.start <= WE.end
     /\ WE.end = HighLSN
 
+MetadataExtentsCoverDataRange ==
+    LET allFiles == GetMetadataFiles
+        firstFile == allFiles[1]
+        lastFile == allFiles[Len(allFiles)]
+    IN /\ firstFile.start <= LowLSN
+       /\ lastFile.end >= HighLSN
+
 NoDataLoss ==
     \* Not valid state during crash or truncate_head_phase1
     \/ PrevState \in { "crash", "truncate_tail_p1" }
+    \/ TTIP = TRUE \* TruncateTail in progress
     \/ /\ ValidReadOnlyExtents
        /\ ValidWriteExtent
+       /\ MetadataExtentsCoverDataRange
        /\ LowLSN <= HighLSN
 
 \* Invariant 2: No dangling files on disk
 \* No file/extent present on disk which is not required.
 NotDanglingExtent(ex, lowLSN, highLSN) ==
     ~ ( \/ ex.start >= highLSN
-        \/ ex.end <= lowLSN)
+        \/ ex.end <= lowLSN )
 
 NoDanglingExtents ==
     \/ PrevState \in {"crash", "truncate_head_p1", "truncate_tail_p1" }
-    \/ \A i \in 1..Len(REs) : NotDanglingExtent(REs[i], LowLSN, HighLSN)
+    \/ THIP = TRUE \* TruncateHead is in progress - so some files are dangling.
+    \* Todo: Why is TruncateTail not failing for dangling REs ?
+    \/ /\ \A i \in 1..Len(REs) : NotDanglingExtent(REs[i], LowLSN, HighLSN)
+       /\ \/ WE.start = WE.end \* WE is empty
+          \/ LowLSN = HighLSN  \* There is no data in log
+          \/ TTIP = TRUE \* TruncateTail is in progress - WE might be dangling
+          \* If there is some data, WE should be valid
+          \/ NotDanglingExtent(WE, LowLSN, HighLSN)
+
+\* Todo: Correctness of MetadataFile:
+\*   1. FileIds should be in increasing order
+\*   2. 
+MetadataFileCorrect ==
+    /\ \A i \in 1..Len(MetadataFile.fileIds)-1 : 
+                MetadataFile.fileIds[i] < MetadataFile.fileIds[i+1]
+    /\ MetadataFile.headLSN = LowLSN
+    /\ IF MetadataFile.cleanShutdown
+       THEN 1 = 1 \* MetadataFile.lastTailLSN = HighLSN
+       \* Todo: What should still be correct in clean shutdown case ?
+       ELSE 1 = 1
 
 \* Change below value to see different steps taken for particular test run.
 LSNSteps ==
@@ -328,6 +372,11 @@ LSNSteps ==
 \* Todo: need to model - data lost in between LowLSN and HighLSN
 \*       In that case, we will Fail replica in real world 
 \*       and rebuild from another source.
+MaxOf2(a, b) ==
+    IF a < b
+    THEN b
+    ELSE a
+
 CrashDataLost ==
     /\ PrevState' = "crash"
     /\ HighLSN' = IF HighLSN > (MaxNum \div 2)
@@ -339,5 +388,5 @@ CrashDataLost ==
     /\ UNCHANGED << LowLSN, MaxNum, REs, WE, WEonDisk, TornWrite>>
 =============================================================================
 \* Modification History
-\* Last modified Tue Nov 10 15:30:35 PST 2020 by asnegi
+\* Last modified Tue Nov 10 21:32:28 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
