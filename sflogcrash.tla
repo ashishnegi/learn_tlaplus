@@ -28,6 +28,7 @@ EXTENDS Integers, Sequences
 \*              Handle crash after each step in Recovery.
 
 \* TLA+ spec : Look at MetadataFile info to make decision during recovery
+
 VARIABLES REs, WE, LowLSN, HighLSN, PrevState, MaxNum, MetadataFile, 
           TornWrite, 
           THIP, \* TruncateHeadInProgress
@@ -71,6 +72,28 @@ Init ==
     /\ NWEIP = FALSE
     /\ MaxNum = 10
 
+\* Helper functions -- begin
+RECURSIVE filterSeq(_,_,_)
+filterSeq(seqs, F(_), result) ==
+    IF seqs = <<>>
+    THEN result
+    ELSE filterSeq(Tail(seqs), 
+                   F, 
+                   IF F(Head(seqs))
+                   THEN Append(result, Head(seqs))
+                   ELSE result)
+
+GetFileIds(files) ==
+    [ i \in 1..Len(files) |-> files[i].id ]
+
+GetMetadataFiles ==
+    LET PresentInMetadataFiles(r) == 
+            LET SameId(r2Id) == r.id = r2Id
+            IN Len(SelectSeq(MetadataFile.fileIds, SameId)) > 0
+    IN SelectSeq(Append(REs, WE), PresentInMetadataFiles)
+
+\* Helper functions -- end
+
 \* Append keeps appending to WE increasing end LSN.
 AppendToFile ==
     \* Append to file is always allowed except crash. 
@@ -104,20 +127,25 @@ WriteExtentFullNewWE ==
     /\ UNCHANGED << LowLSN, HighLSN, MaxNum, REs, WE, MetadataFile, TornWrite, THIP, TTIP >>
 
 \* Add new write extent file to MetadataFile and open for new appends
-\* Todo : Can we include more PrevStates ?
 NewWriteExtentAddToMetadataFile ==
-    /\ PrevState = "WE_full_New_WE"
-    \*/\ NWEIP = TRUE
-    \*/\ PrevState # "crash" \* only recovery runs after crash
+    /\ NWEIP = TRUE
+    /\ PrevState # "crash" \* only recovery runs after crash
     /\ HighLSN < MaxNum - 1 \* Stop TLC model checker (MC) to generate more cases to finish MC.
-    \* Change on disk
-    /\ MetadataFile' = [MetadataFile EXCEPT !.fileIds = Append(MetadataFile.fileIds, New_WE.id)]
     \* In-memory data structure change
-    /\ REs' = Append(REs, WE)
+    \* Because of concurrency in TH, it is possible to get Truncation till last WE
+    \* while we are adding new WE
+    /\ REs' = IF WE.end <= LowLSN
+              THEN <<>>
+              ELSE Append(REs, WE)
     /\ WE' = [ id      |-> New_WE.id,
                start   |-> New_WE.start,
                end     |-> New_WE.end,
                version |-> New_WE.version ]
+    \* Change on disk:
+    \*     During implementation, make sure that we write to disk first, 
+    \*     and REs' don't change during that time.
+    /\ MetadataFile' = [MetadataFile EXCEPT !.fileIds = Append(GetFileIds(REs'), New_WE.id)]
+    \* Reset other fields
     /\ New_WE' = [ New_WE EXCEPT !.exist = FALSE ]
     /\ HighLSN' = HighLSN + 1 \* Ack to customer that write succeeded
     /\ PrevState' = "New_WE_in_MDT"
@@ -140,28 +168,6 @@ CrashNoDataLoss ==
     /\ PrevState' = "crash"
     /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = FALSE]
     /\ UNCHANGED << LowLSN, MaxNum, HighLSN, REs, WE, TornWrite, THIP, TTIP, NWEIP, New_WE >>
-
-\* Helper functions -- begin
-RECURSIVE filterSeq(_,_,_)
-filterSeq(seqs, F(_), result) ==
-    IF seqs = <<>>
-    THEN result
-    ELSE filterSeq(Tail(seqs), 
-                   F, 
-                   IF F(Head(seqs))
-                   THEN Append(result, Head(seqs))
-                   ELSE result)
-
-GetFileIds(files) ==
-    [ i \in 1..Len(files) |-> files[i].id ]
-
-GetMetadataFiles ==
-    LET PresentInMetadataFiles(r) == 
-            LET SameId(r2Id) == r.id = r2Id
-            IN Len(SelectSeq(MetadataFile.fileIds, SameId)) > 0
-    IN SelectSeq(Append(REs, WE), PresentInMetadataFiles)
-
-\* Helper functions -- end
 
 Close ==
     /\ PrevState \notin { "crash", "close" }
@@ -233,10 +239,16 @@ Recovery ==
 \* TruncateHead (TH)
 \* ASSUMPTIONS:
 \* 1. There is only 1 TH call at a time
-\* 2. TH and append can be called together.
+\* 2. 1 TH and 1 append can happen concurrently.
 \* We broke truncate head in 2 phases to simulate a crash in between 2 stages.
 \* Also, other states like appends can happen in between 2 phases.
 \* Phase1 : Update metadata file first.
+\* Note on TT Phase 2:
+\*   Because of race condition in TH and Full_WE workflow, 
+\*   it is possible that MetadataFile contain entry for deleted files
+\*   which are not of [headLSN, tailLSN) range.
+\*   However, i am giving more importance to giving back unneeded disk space
+\*   for handling entry of unnecessary files in MetadataFile.
 TruncateHeadP1 ==
     /\ PrevState \notin { "crash", "close" }
     \* truncate_head waits for new_WE workflow to finish.
@@ -251,7 +263,8 @@ TruncateHeadP1 ==
     \* as we need at least 1 file in logger at all time.
     /\ LET newREs == LET nonTruncatedRE(re) == re.end > LowLSN'
                      IN SelectSeq(REs, nonTruncatedRE)
-       IN MetadataFile' = [MetadataFile EXCEPT !.headLSN = LowLSN', 
+       IN MetadataFile' = [MetadataFile EXCEPT 
+                                            !.headLSN = LowLSN', 
                                             !.lastTailLSN = HighLSN,
                                             !.fileIds = GetFileIds(Append(newREs, WE))]
     /\ THIP' = TRUE
@@ -455,5 +468,5 @@ CrashDataLost ==
     /\ UNCHANGED << LowLSN, MaxNum, REs, WE, TornWrite>>
 =============================================================================
 \* Modification History
-\* Last modified Wed Nov 11 19:35:20 PST 2020 by asnegi
+\* Last modified Wed Nov 11 21:53:44 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
