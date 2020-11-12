@@ -90,10 +90,13 @@ AppendToFile ==
 \* New steps:
 \*  1. Create a new WE file with right data
 \*  2. Add to metadata file and move WE to RE in memory and WE' = new_WE
-\* Todo: Is "Append" only valid previous state ? -- Add a field in file : full : {TRUE, FALSE}
+\* Todo: Allow WriteExtentFullNewWE to run after recovery. Add a field in file : full : {TRUE, FALSE}
 \* If we crash before NewWriteExtentAddToMetadataFile, we ignore this write and New_WE file is deleted on recovery.
 WriteExtentFullNewWE ==
-    /\ PrevState = "append"
+    /\ \/ PrevState = "append"
+       \/ /\ THIP = TRUE
+          /\ PrevState # "crash"
+    /\ NWEIP = FALSE \* Only WE full workflow at a time
     /\ NWEIP' = TRUE \* Stop appends to WE
     \* Create new WE
     /\ New_WE' = [exist |-> TRUE, id |-> WE.id + 1, start |-> WE.end, end |-> WE.end + 1, version |-> WE.version]
@@ -101,9 +104,12 @@ WriteExtentFullNewWE ==
     /\ UNCHANGED << LowLSN, HighLSN, MaxNum, REs, WE, MetadataFile, TornWrite, THIP, TTIP >>
 
 \* Add new write extent file to MetadataFile and open for new appends
+\* Todo : Can we include more PrevStates ?
 NewWriteExtentAddToMetadataFile ==
     /\ PrevState = "WE_full_New_WE"
-    /\ HighLSN < MaxNum - 1
+    \*/\ NWEIP = TRUE
+    \*/\ PrevState # "crash" \* only recovery runs after crash
+    /\ HighLSN < MaxNum - 1 \* Stop TLC model checker (MC) to generate more cases to finish MC.
     \* Change on disk
     /\ MetadataFile' = [MetadataFile EXCEPT !.fileIds = Append(MetadataFile.fileIds, New_WE.id)]
     \* In-memory data structure change
@@ -135,18 +141,6 @@ CrashNoDataLoss ==
     /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = FALSE]
     /\ UNCHANGED << LowLSN, MaxNum, HighLSN, REs, WE, TornWrite, THIP, TTIP, NWEIP, New_WE >>
 
-Close ==
-    /\ PrevState \notin { "crash", "close" }
-    \* Close waits for workflows to finish: 
-    \*    New_WE, truncate_head, truncate_tail
-    /\ NWEIP = FALSE
-    /\ TTIP = FALSE
-    /\ THIP = FALSE
-    /\ PrevState' = "close"
-    /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = TRUE]
-    /\ UNCHANGED << LowLSN, MaxNum, HighLSN, REs, WE, TornWrite, THIP, TTIP, NWEIP, New_WE >>
-    
-
 \* Helper functions -- begin
 RECURSIVE filterSeq(_,_,_)
 filterSeq(seqs, F(_), result) ==
@@ -158,7 +152,7 @@ filterSeq(seqs, F(_), result) ==
                    THEN Append(result, Head(seqs))
                    ELSE result)
 
-GetAllIds(files) ==
+GetFileIds(files) ==
     [ i \in 1..Len(files) |-> files[i].id ]
 
 GetMetadataFiles ==
@@ -167,7 +161,23 @@ GetMetadataFiles ==
             IN Len(SelectSeq(MetadataFile.fileIds, SameId)) > 0
     IN SelectSeq(Append(REs, WE), PresentInMetadataFiles)
 
-\* Helper functions -- end    
+\* Helper functions -- end
+
+Close ==
+    /\ PrevState \notin { "crash", "close" }
+    \* Close waits for workflows to finish: 
+    \*    New_WE, truncate_head, truncate_tail
+    /\ NWEIP = FALSE
+    /\ TTIP = FALSE
+    /\ THIP = FALSE
+    /\ PrevState' = "close"
+    /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = TRUE,
+       \* Because of race condition in TH and Full_WE workflow, 
+       \* it is possible that MetadataFile contain entry for deleted files
+       \* which are not of [headLSN, tailLSN) range
+                                            !.fileIds = GetFileIds(GetMetadataFiles)]
+    /\ UNCHANGED << LowLSN, MaxNum, HighLSN, REs, WE, TornWrite, THIP, TTIP, NWEIP, New_WE >>
+
 
 \* After crash, we can't look at value of WEonDisk, WE
 \* We have a list of files on disk
@@ -208,7 +218,8 @@ Recovery ==
                     /\ WE' = [goodExtents[Len(goodExtents)] 
                                 EXCEPT !.end = highLSN,
                                        !.version = MetadataFile.lastTailVersion]
-                    /\ MetadataFile' = MetadataFile
+                    /\ MetadataFile' = [ MetadataFile EXCEPT !.cleanShutdown = FALSE,
+                                                             !.fileIds = GetFileIds(goodExtents)]
     \* Reset variables correctly so that appends can work.
     /\ PrevState' = "recovery"
     /\ THIP' = FALSE 
@@ -219,7 +230,10 @@ Recovery ==
     /\ TornWrite' = FALSE
     /\ UNCHANGED << LowLSN, MaxNum, HighLSN >>
         
-\* TruncateHead
+\* TruncateHead (TH)
+\* ASSUMPTIONS:
+\* 1. There is only 1 TH call at a time
+\* 2. TH and append can be called together.
 \* We broke truncate head in 2 phases to simulate a crash in between 2 stages.
 \* Also, other states like appends can happen in between 2 phases.
 \* Phase1 : Update metadata file first.
@@ -227,18 +241,19 @@ TruncateHeadP1 ==
     /\ PrevState \notin { "crash", "close" }
     \* truncate_head waits for new_WE workflow to finish.
     \* Todo: This is possibly bad as even starting the TruncateHead is waiting.
-    \*       It is not very bad because WE_full_move_to_RE has high priority 
-    \*       and should finish fast.
+    \*       It is not very bad because New_WE workflow should finish fast.
     /\ NWEIP = FALSE
     /\ THIP = FALSE \* Only 1 truncate_head at a time
     /\ LowLSN < HighLSN
     /\ PrevState' = "truncate_head_p1"
     /\ LowLSN' = LowLSN + 1
+    \* WE is never removed from MetadataFile in case of TH
+    \* as we need at least 1 file in logger at all time.
     /\ LET newREs == LET nonTruncatedRE(re) == re.end > LowLSN'
                      IN SelectSeq(REs, nonTruncatedRE)
        IN MetadataFile' = [MetadataFile EXCEPT !.headLSN = LowLSN', 
                                             !.lastTailLSN = HighLSN,
-                                            !.fileIds = GetAllIds(Append(newREs, WE))]
+                                            !.fileIds = GetFileIds(Append(newREs, WE))]
     /\ THIP' = TRUE
     /\ UNCHANGED << HighLSN, MaxNum, REs, WE, TornWrite, TTIP, NWEIP, New_WE >>
 
@@ -271,7 +286,7 @@ TruncateTailP1 ==
     /\ TTIP' = TRUE
     /\ MetadataFile' = [MetadataFile EXCEPT !.lastTailLSN = HighLSN',
                                             !.lastTailVersion = MetadataFile.lastTailVersion + 1,
-                                            !.fileIds = GetAllIds(Append(REs, WE))]
+                                            !.fileIds = GetFileIds(Append(REs, WE))]
     /\ UNCHANGED << LowLSN, WE, REs, MaxNum, TornWrite, THIP, NWEIP, New_WE >>
 
 \* Now, zero WE file's tail in Phase 2.
@@ -295,9 +310,9 @@ Next ==
     \/ CrashNoDataLoss
     \/ Close
     \/ Recovery
-    (* \/ TruncateHeadP1
+    \/ TruncateHeadP1
     \/ TruncateHeadP2
-    \/ TruncateTailP1
+    (* \/ TruncateTailP1
     \/ TruncateTailP2 *)
     \* Not modelling Data Loss. 
     \* I am not sure, if we should just fail to open if we find we lost data 
@@ -370,9 +385,18 @@ IsFileIdPresent(fileIds, id) ==
     IN Len(SelectSeq(fileIds, SameId)) = 1
 
 AllMetadataFilesPresentOnDisk ==
-    LET allFiles == Append(REs, WE)
+    LET \* MetadataFile should be in clean state after close or recovery.
+        strictMode == PrevState \in { "close", "recovery" }
+        mdtCoverRange == MetadataExtentsCoverDataRange
+        allFiles == Append(REs, WE)
         allFileIds == [ i \in 1..Len(allFiles) |-> allFiles[i].id ]
-    IN /\ \A i \in 1..Len(MetadataFile.fileIds) : IsFileIdPresent(allFileIds, MetadataFile.fileIds[i])
+    IN /\ \A i \in 1..Len(MetadataFile.fileIds) : 
+                IF strictMode
+                THEN IsFileIdPresent(allFileIds, MetadataFile.fileIds[i])
+                ELSE \* Either file is present
+                     \/ IsFileIdPresent(allFileIds, MetadataFile.fileIds[i])
+                     \* Or we have good reason to not need it - like out of LSN range
+                     \/ mdtCoverRange
        /\ IF New_WE.exist
           \* if New_WE is present, it should not be in RE, WE and mentioned in MetadataFile
           \* i.e New_WE is transient file
@@ -381,7 +405,7 @@ AllMetadataFilesPresentOnDisk ==
           ELSE 1 = 1
 
 MetadataFileCorrect ==
-    /\ \* No missing file
+    /\ \* No missing file - files in increasing order
        \A i \in 1..Len(MetadataFile.fileIds)-1 : 
                 MetadataFile.fileIds[i] < MetadataFile.fileIds[i+1]
     /\ MetadataFile.headLSN = LowLSN
@@ -431,5 +455,5 @@ CrashDataLost ==
     /\ UNCHANGED << LowLSN, MaxNum, REs, WE, TornWrite>>
 =============================================================================
 \* Modification History
-\* Last modified Wed Nov 11 18:26:30 PST 2020 by asnegi
+\* Last modified Wed Nov 11 19:35:20 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
