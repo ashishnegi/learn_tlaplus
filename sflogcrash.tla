@@ -55,7 +55,7 @@ TypeOK ==
     /\ THIP \in { TRUE, FALSE }
     /\ TTIP \in { TRUE, FALSE }
     /\ NWEIP \in { TRUE, FALSE }
-    /\ MaxNum = 10
+    /\ MaxNum = 8
 
 Init ==
     /\ REs = <<>>
@@ -70,7 +70,7 @@ Init ==
     /\ THIP = FALSE
     /\ TTIP = FALSE
     /\ NWEIP = FALSE
-    /\ MaxNum = 10
+    /\ MaxNum = 8
 
 \* Helper functions -- begin
 RECURSIVE filterSeq(_,_,_)
@@ -188,11 +188,12 @@ Close ==
     /\ TTIP = FALSE
     /\ THIP = FALSE
     /\ PrevState' = "close"
-    /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = TRUE,
+    /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = TRUE
        \* Because of race condition in TH and Full_WE workflow, 
        \* it is possible that MetadataFile contain entry for deleted files
        \* which are not of [headLSN, tailLSN) range
-                                            !.fileIds = GetFileIds(GetMetadataFiles)]
+                                            \* !.fileIds = GetFileIds(GetMetadataFiles)
+                                            ]
     /\ UNCHANGED << LowLSN, MaxNum, HighLSN, REs, WE, TornWrite, THIP, TTIP, NWEIP, New_WE >>
 
 
@@ -419,7 +420,7 @@ IsFileIdPresent(fileIds, id) ==
 
 AllMetadataFilesPresentOnDisk ==
     LET \* MetadataFile should be in clean state after close or recovery.
-        strictMode == PrevState \in { "close", "recovery" }
+        strictMode == TRUE \* PrevState \in { "close", "recovery" }
         mdtCoverRange == MetadataExtentsCoverDataRange
         allFiles == Append(REs, WE)
         allFileIds == [ i \in 1..Len(allFiles) |-> allFiles[i].id ]
@@ -456,7 +457,14 @@ CorrectVersionNumber ==
     THEN WE.version = MetadataFile.lastTailVersion
     ELSE WE.version <= MetadataFile.lastTailVersion
 
+\* If we have clean shutdown state - accept after close, we are in bad state.
+CleanShutdownOnlyAfterClose ==
+    ~ ( /\ PrevState # "close"
+        /\ MetadataFile.cleanShutdown = TRUE
+      )
+
 \* Invariants that should fail - Signifies that we have handled these cases.
+
 
 \* TruncateTail is not called on empty WE for truncating data upto REs
 \* Todo: This is not failing - This case is not handled.
@@ -496,5 +504,5 @@ CrashDataLost ==
     /\ UNCHANGED << LowLSN, MaxNum, REs, WE, TornWrite>>
 =============================================================================
 \* Modification History
-\* Last modified Thu Nov 12 01:48:23 PST 2020 by asnegi
+\* Last modified Thu Nov 12 13:38:28 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
