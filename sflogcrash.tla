@@ -19,7 +19,7 @@ EXTENDS Integers, Sequences
 \* MetaDataFile => Stores headLSN, tailLSN, tailVersionNum, fileNames
 \*     When a new file is created after last WE fills up, it's entry is added in metadataFile
 \*     When Truncation happens, head and tail are updated in metadataFile
-\*     Recovery uses metadataFile for knowing list of files in log
+\*     Recovery uses metadataFile for knowing list of valid files in log
 \*      
 \* Todo:
 \* 1) MetaDataFile corruption is single point of failure.
@@ -55,7 +55,7 @@ TypeOK ==
     /\ THIP \in { TRUE, FALSE }
     /\ TTIP \in { TRUE, FALSE }
     /\ NWEIP \in { TRUE, FALSE }
-    /\ MaxNum = 8
+    /\ MaxNum = 7
 
 Init ==
     /\ REs = <<>>
@@ -70,7 +70,7 @@ Init ==
     /\ THIP = FALSE
     /\ TTIP = FALSE
     /\ NWEIP = FALSE
-    /\ MaxNum = 8
+    /\ MaxNum = 7
 
 \* Helper functions -- begin
 RECURSIVE filterSeq(_,_,_)
@@ -144,6 +144,18 @@ NewWriteExtentAddToMetadataFile ==
     /\ HighLSN < MaxNum - 1 \* Stop TLC model checker (MC) to generate more cases to finish MC.
     \* No writes allowed while truncate_tail is in progress.
     /\ TTIP = FALSE \* How to assert that TTIP is false ?
+    \* First change MetadataFile on disk:
+    \* If you see invariant AllMetadataFilesPresentOnDisk, you will see that we 
+    \* can have file entries in MetadataFile which don't exist on disk.
+    \* This can be because of concurrency with TH.     
+    \*      If we replace Append(GetFileIds(REs'), New_WE.id) below
+    \*      we can make sure that metadata file always have valid fileids.
+    \*      But we don't want to do that, as changing MetadataFile on disk first
+    \*      and then changing REs in memory is not atomic.
+    \*      Idea is not use Low/High LSN for changing disk data structures.
+    \*      Hopefully, i am not overthinking.
+    /\ MetadataFile' = [MetadataFile EXCEPT !.fileIds = Append(MetadataFile.fileIds, New_WE.id)]
+    \* Todo: Split changing RE in separate action to see what concurrency can do.
     \* In-memory data structure change
     \* Because of concurrency in TH, it is possible to get Truncation till last WE
     \* while we are adding new WE
@@ -152,10 +164,6 @@ NewWriteExtentAddToMetadataFile ==
                start   |-> New_WE.start,
                end     |-> New_WE.end,
                version |-> New_WE.version ]
-    \* Change on disk:
-    \*     During implementation, make sure that we write to disk first, 
-    \*     and REs' don't change during that time.
-    /\ MetadataFile' = [MetadataFile EXCEPT !.fileIds = Append(GetFileIds(REs'), New_WE.id)]
     \* Reset other fields
     /\ New_WE' = [ New_WE EXCEPT !.exist = FALSE ]
     /\ HighLSN' = HighLSN + 1 \* Ack to customer that write succeeded
@@ -171,14 +179,18 @@ CrashWhileAppend ==
     /\ PrevState' = "crash"
     /\ HighLSN' = HighLSN - 1 \* Simulate : we crashed before acking to customer
     /\ TornWrite' = TRUE
-    /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = FALSE]
-    /\ UNCHANGED << LowLSN, MaxNum, REs, WE, THIP, TTIP, NWEIP, New_WE >>
+    \* don't change metadata file as we can't do it during crash
+    \* Invariant : CleanShutdownOnlyAfterClose makes sure that we have clean bit set only after close
+    \* /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = FALSE]
+    /\ UNCHANGED << LowLSN, MaxNum, REs, WE, THIP, TTIP, NWEIP, New_WE, MetadataFile >>
     
 CrashNoDataLoss ==
-    /\ PrevState # "crash"
+    /\ PrevState \notin { "crash", "close" } \* we can't crash after close as we aren't running
     /\ PrevState' = "crash"
-    /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = FALSE]
-    /\ UNCHANGED << LowLSN, MaxNum, HighLSN, REs, WE, TornWrite, THIP, TTIP, NWEIP, New_WE >>
+    \* don't change metadata file as we can't do it during crash
+    \* Invariant : CleanShutdownOnlyAfterClose makes sure that we have clean bit set only after close
+    \* /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = FALSE]
+    /\ UNCHANGED << LowLSN, MaxNum, HighLSN, REs, WE, TornWrite, THIP, TTIP, NWEIP, New_WE, MetadataFile >>
 
 Close ==
     /\ PrevState \notin { "crash", "close" }
@@ -188,11 +200,11 @@ Close ==
     /\ TTIP = FALSE
     /\ THIP = FALSE
     /\ PrevState' = "close"
-    /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = TRUE
+    /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = TRUE,
        \* Because of race condition in TH and Full_WE workflow, 
        \* it is possible that MetadataFile contain entry for deleted files
        \* which are not of [headLSN, tailLSN) range
-                                            \* !.fileIds = GetFileIds(GetMetadataFiles)
+                                            !.fileIds = GetFileIds(GetMetadataFiles)
                                             ]
     /\ UNCHANGED << LowLSN, MaxNum, HighLSN, REs, WE, TornWrite, THIP, TTIP, NWEIP, New_WE >>
 
@@ -200,13 +212,14 @@ Close ==
 \* After crash, we can't look at value of WEonDisk, WE
 \* We have a list of files on disk
 \* Recovery happens on Open
+\* After recovery, we set cleanshutdown bit in metadatafile to false
 Recovery ==
     /\ \/ PrevState = "crash"
        \/ PrevState = "close"
     /\ IF MetadataFile.cleanShutdown
        THEN /\ REs' = REs
             /\ WE' = WE
-            /\ MetadataFile' = MetadataFile
+            /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = FALSE ]
        ELSE LET allFiles == GetMetadataFiles
                 lowLSN == MetadataFile.headLSN
                 lastWE == LET lastWEId == MetadataFile.fileIds[Len(MetadataFile.fileIds)]
@@ -235,8 +248,7 @@ Recovery ==
                     /\ WE' = [goodExtents[Len(goodExtents)] 
                                 EXCEPT !.end = highLSN,
                                        !.version = MetadataFile.lastTailVersion]
-                    /\ MetadataFile' = [ MetadataFile EXCEPT !.cleanShutdown = FALSE,
-                                                             !.fileIds = GetFileIds(goodExtents)]
+                    /\ MetadataFile' = [ MetadataFile EXCEPT !.fileIds = GetFileIds(goodExtents)]
     \* Reset variables correctly so that appends can work.
     /\ PrevState' = "recovery"
     /\ THIP' = FALSE 
@@ -303,7 +315,7 @@ TruncateHeadP2 ==
 \* If we crash after updating metadata file, we can truncate tail of WE on recovery.
 \* Other valid states like appends can't run between 2 phases.
 TruncateTailP1 ==
-    /\ PrevState # "crash"
+    /\ PrevState \notin { "crash", "close" }
     \* No append, truncate head going on at this time
     /\ NWEIP = FALSE
     /\ THIP = FALSE
@@ -420,7 +432,7 @@ IsFileIdPresent(fileIds, id) ==
 
 AllMetadataFilesPresentOnDisk ==
     LET \* MetadataFile should be in clean state after close or recovery.
-        strictMode == TRUE \* PrevState \in { "close", "recovery" }
+        strictMode == PrevState \in { "close", "recovery" }
         mdtCoverRange == MetadataExtentsCoverDataRange
         allFiles == Append(REs, WE)
         allFileIds == [ i \in 1..Len(allFiles) |-> allFiles[i].id ]
@@ -457,7 +469,8 @@ CorrectVersionNumber ==
     THEN WE.version = MetadataFile.lastTailVersion
     ELSE WE.version <= MetadataFile.lastTailVersion
 
-\* If we have clean shutdown state - accept after close, we are in bad state.
+\* If we have clean shutdown state - except after close, we are in bad state.
+\* Waiting for TLC bug to get fixed : https://github.com/tlaplus/tlaplus/issues/538
 CleanShutdownOnlyAfterClose ==
     ~ ( /\ PrevState # "close"
         /\ MetadataFile.cleanShutdown = TRUE
@@ -504,5 +517,5 @@ CrashDataLost ==
     /\ UNCHANGED << LowLSN, MaxNum, REs, WE, TornWrite>>
 =============================================================================
 \* Modification History
-\* Last modified Thu Nov 12 13:38:28 PST 2020 by asnegi
+\* Last modified Thu Nov 12 15:14:39 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
