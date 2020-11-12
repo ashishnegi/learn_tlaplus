@@ -248,7 +248,7 @@ Recovery ==
         
 \* TruncateHead (TH)
 \* ASSUMPTIONS:
-\* 1. There is only 1 TH call at a time
+\* 1. There is only 1 TH call at a time - but because of 2 phases, there can be multiple TH in phase2.
 \* 2. 1 TH and 1 append can happen concurrently.
 \* 3. No TT when TH starts.
 \* We broke truncate head in 2 phases to simulate a crash in between 2 stages.
@@ -266,8 +266,7 @@ TruncateHeadP1 ==
     \* Todo: This is possibly bad as even starting the TruncateHead is waiting.
     \*       It is not very bad because New_WE workflow should finish fast.
     /\ NWEIP = FALSE
-    \*/\ TTIP = FALSE
-    /\ THIP = FALSE \* Only 1 truncate_head at a time
+    /\ TTIP = FALSE \* No truncate tail in progress.
     /\ LowLSN < HighLSN
     /\ PrevState' = "truncate_head_p1"
     /\ LowLSN' = LowLSN + 1
@@ -497,5 +496,5 @@ CrashDataLost ==
     /\ UNCHANGED << LowLSN, MaxNum, REs, WE, TornWrite>>
 =============================================================================
 \* Modification History
-\* Last modified Thu Nov 12 00:28:31 PST 2020 by asnegi
+\* Last modified Thu Nov 12 01:48:23 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
