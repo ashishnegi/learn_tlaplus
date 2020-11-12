@@ -90,8 +90,8 @@ AppendToFile ==
 \* New steps:
 \*  1. Create a new WE file with right data
 \*  2. Add to metadata file and move WE to RE in memory and WE' = new_WE
-\* Todo: Is "Append" only valid previous state ?
-\*       Handle crash after this step
+\* Todo: Is "Append" only valid previous state ? -- Add a field in file : full : {TRUE, FALSE}
+\* If we crash before NewWriteExtentAddToMetadataFile, we ignore this write and New_WE file is deleted on recovery.
 WriteExtentFullNewWE ==
     /\ PrevState = "append"
     /\ NWEIP' = TRUE \* Stop appends to WE
@@ -101,13 +101,12 @@ WriteExtentFullNewWE ==
     /\ UNCHANGED << LowLSN, HighLSN, MaxNum, REs, WE, MetadataFile, TornWrite, THIP, TTIP >>
 
 \* Add new write extent file to MetadataFile and open for new appends
-\* Todo: Handle crash after this step
 NewWriteExtentAddToMetadataFile ==
     /\ PrevState = "WE_full_New_WE"
     /\ HighLSN < MaxNum - 1
     \* Change on disk
     /\ MetadataFile' = [MetadataFile EXCEPT !.fileIds = Append(MetadataFile.fileIds, New_WE.id)]
-    \* In memory change
+    \* In-memory data structure change
     /\ REs' = Append(REs, WE)
     /\ WE' = [ id      |-> New_WE.id,
                start   |-> New_WE.start,
@@ -120,15 +119,18 @@ NewWriteExtentAddToMetadataFile ==
     /\ UNCHANGED << LowLSN, MaxNum, TornWrite, THIP, TTIP >>
 
 \* Crash: torn write : last write ignored
+\* We can't have torn write in case of New_WE, as only after write is successful, 
+\* we update metadata and ack to caller.
 CrashWhileAppend ==
     /\ PrevState = "append"
     /\ PrevState' = "crash"
-    /\ HighLSN' = HighLSN - 1
+    /\ HighLSN' = HighLSN - 1 \* Simulate : we crashed before acking to customer
     /\ TornWrite' = TRUE
     /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = FALSE]
     /\ UNCHANGED << LowLSN, MaxNum, REs, WE, THIP, TTIP, NWEIP, New_WE >>
     
 CrashNoDataLoss ==
+    /\ PrevState # "crash"
     /\ PrevState' = "crash"
     /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = FALSE]
     /\ UNCHANGED << LowLSN, MaxNum, HighLSN, REs, WE, TornWrite, THIP, TTIP, NWEIP, New_WE >>
@@ -212,14 +214,15 @@ Recovery ==
     /\ THIP' = FALSE 
     /\ TTIP' = FALSE
     /\ NWEIP' = FALSE
+    \* Delete New_WE file if it exists -- crash happened before updating MetadataFile
     /\ New_WE' = [ New_WE EXCEPT !.exist = FALSE ]
     /\ TornWrite' = FALSE
     /\ UNCHANGED << LowLSN, MaxNum, HighLSN >>
         
 \* TruncateHead
-\* Phase1 : Update metadata file first.
 \* We broke truncate head in 2 phases to simulate a crash in between 2 stages.
 \* Also, other states like appends can happen in between 2 phases.
+\* Phase1 : Update metadata file first.
 TruncateHeadP1 ==
     /\ PrevState \notin { "crash", "close" }
     \* truncate_head waits for new_WE workflow to finish.
@@ -239,6 +242,7 @@ TruncateHeadP1 ==
     /\ THIP' = TRUE
     /\ UNCHANGED << HighLSN, MaxNum, REs, WE, TornWrite, TTIP, NWEIP, New_WE >>
 
+\* Delete/Zero out RE files in 2nd phase of TruncateHead
 TruncateHeadP2 ==
     /\ \/ PrevState = "truncate_head_p1"
        \/ /\ THIP = TRUE
@@ -361,10 +365,27 @@ NoDanglingExtents ==
 \* Todo: Correctness of MetadataFile:
 \*   1. FileIds should be in increasing order
 \*   2. HeadLSN should be same as Expected LowLSN
+IsFileIdPresent(fileIds, id) ==
+    LET SameId(fid) == fid = id
+    IN Len(SelectSeq(fileIds, SameId)) = 1
+
+AllMetadataFilesPresentOnDisk ==
+    LET allFiles == Append(REs, WE)
+        allFileIds == [ i \in 1..Len(allFiles) |-> allFiles[i].id ]
+    IN /\ \A i \in 1..Len(MetadataFile.fileIds) : IsFileIdPresent(allFileIds, MetadataFile.fileIds[i])
+       /\ IF New_WE.exist
+          \* if New_WE is present, it should not be in RE, WE and mentioned in MetadataFile
+          \* i.e New_WE is transient file
+          THEN /\ ~ IsFileIdPresent(allFileIds, New_WE.id)
+               /\ ~ IsFileIdPresent(MetadataFile.fileIds, New_WE.id)
+          ELSE 1 = 1
+
 MetadataFileCorrect ==
-    /\ \A i \in 1..Len(MetadataFile.fileIds)-1 : 
+    /\ \* No missing file
+       \A i \in 1..Len(MetadataFile.fileIds)-1 : 
                 MetadataFile.fileIds[i] < MetadataFile.fileIds[i+1]
     /\ MetadataFile.headLSN = LowLSN
+    /\ AllMetadataFilesPresentOnDisk \* even during crash
     /\ IF MetadataFile.cleanShutdown
        THEN 1 = 1 \* MetadataFile.lastTailLSN = HighLSN
        \* Todo: What should still be correct in clean shutdown case ?
@@ -410,5 +431,5 @@ CrashDataLost ==
     /\ UNCHANGED << LowLSN, MaxNum, REs, WE, TornWrite>>
 =============================================================================
 \* Modification History
-\* Last modified Wed Nov 11 17:45:51 PST 2020 by asnegi
+\* Last modified Wed Nov 11 18:26:30 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
