@@ -92,6 +92,11 @@ GetMetadataFiles ==
             IN Len(SelectSeq(MetadataFile.fileIds, SameId)) > 0
     IN SelectSeq(Append(REs, WE), PresentInMetadataFiles)
 
+GetValidFiles(files, lowLSN, highLSN) ==
+    LET ValidFile(f) == /\ f.start < f.end
+                        /\ ~ (\/ (f.end <= lowLSN) \/ (f.start > highLSN))
+    IN SelectSeq(files, ValidFile)
+
 \* Helper functions -- end
 
 \* Append keeps appending to WE increasing end LSN.
@@ -119,10 +124,16 @@ WriteExtentFullNewWE ==
     /\ \/ PrevState = "append"
        \/ /\ THIP = TRUE
           /\ PrevState # "crash"
+    /\ WE.id < MaxNum - 1 \* Stop MC after these steps
+    \* No writes allowed while truncate_tail is in progress.
+    /\ TTIP = FALSE
     /\ NWEIP = FALSE \* Only WE full workflow at a time
     /\ NWEIP' = TRUE \* Stop appends to WE
     \* Create new WE
-    /\ New_WE' = [exist |-> TRUE, id |-> WE.id + 1, start |-> WE.end, end |-> WE.end + 1, version |-> WE.version]
+    /\ New_WE' = [ exist |-> TRUE, id |-> WE.id + 1, start |-> WE.end, end |-> WE.end + 1, 
+                   \* Next write after TruncateTail will append to file with new version number.
+                   version |-> MetadataFile.lastTailVersion]
+
     /\ PrevState' = "WE_full_New_WE"
     /\ UNCHANGED << LowLSN, HighLSN, MaxNum, REs, WE, MetadataFile, TornWrite, THIP, TTIP >>
 
@@ -131,12 +142,12 @@ NewWriteExtentAddToMetadataFile ==
     /\ NWEIP = TRUE
     /\ PrevState # "crash" \* only recovery runs after crash
     /\ HighLSN < MaxNum - 1 \* Stop TLC model checker (MC) to generate more cases to finish MC.
+    \* No writes allowed while truncate_tail is in progress.
+    /\ TTIP = FALSE \* How to assert that TTIP is false ?
     \* In-memory data structure change
     \* Because of concurrency in TH, it is possible to get Truncation till last WE
     \* while we are adding new WE
-    /\ REs' = IF WE.end <= LowLSN
-              THEN <<>>
-              ELSE Append(REs, WE)
+    /\ REs' = GetValidFiles(Append(REs, WE), LowLSN, HighLSN)
     /\ WE' = [ id      |-> New_WE.id,
                start   |-> New_WE.start,
                end     |-> New_WE.end,
@@ -212,8 +223,7 @@ Recovery ==
                               ELSE IF lastWE.version < MetadataFile.lastTailVersion
                               THEN MetadataFile.lastTailLSN
                               ELSE lastValidWrite
-                goodExtents == LET ValidFile(f) == ~ (\/ (f.end <= lowLSN) \/ (f.start > highLSN))
-                               IN SelectSeq(allFiles, ValidFile)
+                goodExtents == GetValidFiles(allFiles, lowLSN, highLSN)
                 cleanState == Len(goodExtents) =  0
             IN IF cleanState
                THEN /\ REs' = <<>>
@@ -240,6 +250,7 @@ Recovery ==
 \* ASSUMPTIONS:
 \* 1. There is only 1 TH call at a time
 \* 2. 1 TH and 1 append can happen concurrently.
+\* 3. No TT when TH starts.
 \* We broke truncate head in 2 phases to simulate a crash in between 2 stages.
 \* Also, other states like appends can happen in between 2 phases.
 \* Phase1 : Update metadata file first.
@@ -255,6 +266,7 @@ TruncateHeadP1 ==
     \* Todo: This is possibly bad as even starting the TruncateHead is waiting.
     \*       It is not very bad because New_WE workflow should finish fast.
     /\ NWEIP = FALSE
+    \*/\ TTIP = FALSE
     /\ THIP = FALSE \* Only 1 truncate_head at a time
     /\ LowLSN < HighLSN
     /\ PrevState' = "truncate_head_p1"
@@ -282,27 +294,36 @@ TruncateHeadP2 ==
     /\ UNCHANGED << LowLSN, HighLSN, MaxNum, WE, MetadataFile, TornWrite, TTIP, NWEIP, New_WE >>    
     
 \* TruncateTailP1 :
+\* ASSUMPTIONS:
+\*   1. No TruncateTail (TT) while append is called.
+\*   2. No Append/TruncateHead (TH) while TT is going on.
 \* Phase1 : Update metadata file first.
 \* We broke truncate tail in 2 phases to simulate a crash in between 2 stages.
 \* Update metadata file first:
 \* If we crash after updating metadata file, we can truncate tail of WE on recovery.
 \* Other valid states like appends can't run between 2 phases.
-\* Todo: Is "Append" only valid previous state ?
 TruncateTailP1 ==
-    /\ \/ PrevState = "append"
-       \/ PrevState = "New_WE_in_MDT"
+    /\ PrevState # "crash"
+    \* No append, truncate head going on at this time
+    /\ NWEIP = FALSE
+    /\ THIP = FALSE
     /\ TTIP = FALSE \* Only one truncate tail allowed at a time.
     /\ LowLSN < HighLSN
     /\ MetadataFile.lastTailVersion < MaxNum - 1
     /\ PrevState' = "truncate_tail_p1"
     /\ HighLSN' = HighLSN - 1
     /\ TTIP' = TRUE
-    /\ MetadataFile' = [MetadataFile EXCEPT !.lastTailLSN = HighLSN',
-                                            !.lastTailVersion = MetadataFile.lastTailVersion + 1,
-                                            !.fileIds = GetFileIds(Append(REs, WE))]
+    \* In TruncateTail - update tailLsn, version, fileIds in MetadataFile
+    /\ LET validExtents == IF WE.start < WE.end \* WE has data
+                           THEN Append(REs, [WE EXCEPT !.end = WE.end - 1])
+                           ELSE LET lastRE == REs[Len(REs)]
+                                IN Append(SubSeq(REs, 1, Len(REs)-1), [ lastRE EXCEPT !.end = lastRE.end - 1])
+       IN MetadataFile' = [MetadataFile EXCEPT !.lastTailLSN = HighLSN',
+                                               !.lastTailVersion = MetadataFile.lastTailVersion + 1,
+                                               !.fileIds = GetFileIds(validExtents)]
     /\ UNCHANGED << LowLSN, WE, REs, MaxNum, TornWrite, THIP, NWEIP, New_WE >>
 
-\* Now, zero WE file's tail in Phase 2.
+\* Now, actual delete file/zero WE file's tail in Phase 2.
 TruncateTailP2 ==
     /\ PrevState = "truncate_tail_p1"
     /\ PrevState' = "truncate_tail"
@@ -325,8 +346,8 @@ Next ==
     \/ Recovery
     \/ TruncateHeadP1
     \/ TruncateHeadP2
-    (* \/ TruncateTailP1
-    \/ TruncateTailP2 *)
+    \/ TruncateTailP1
+    \/ TruncateTailP2
     \* Not modelling Data Loss. 
     \* I am not sure, if we should just fail to open if we find we lost data 
     \*   so that we build from new replica.    
@@ -380,17 +401,17 @@ NotDanglingExtent(ex, lowLSN, highLSN) ==
         \/ ex.end <= lowLSN )
 
 NoDanglingExtents ==
-    \/ PrevState \in {"crash", "truncate_head_p1", "truncate_tail_p1" }
-    \/ THIP = TRUE \* TruncateHead is in progress - so some files are dangling.
-    \* Todo: Why is TruncateTail not failing for dangling REs ?
+    \/ PrevState = "crash"
+    \* TH/TT is in progress - so some files are dangling.
+    \/ THIP = TRUE
+    \/ TTIP = TRUE
     \/ /\ \A i \in 1..Len(REs) : NotDanglingExtent(REs[i], LowLSN, HighLSN)
        /\ \/ WE.start = WE.end \* WE is empty
           \/ LowLSN = HighLSN  \* There is no data in log
-          \/ TTIP = TRUE \* TruncateTail is in progress - WE might be dangling
           \* If there is some data, WE should be valid
           \/ NotDanglingExtent(WE, LowLSN, HighLSN)
 
-\* Todo: Correctness of MetadataFile:
+\* Invariant 3 : Correctness of MetadataFile:
 \*   1. FileIds should be in increasing order
 \*   2. HeadLSN should be same as Expected LowLSN
 IsFileIdPresent(fileIds, id) ==
@@ -409,6 +430,8 @@ AllMetadataFilesPresentOnDisk ==
                 ELSE \* Either file is present
                      \/ IsFileIdPresent(allFileIds, MetadataFile.fileIds[i])
                      \* Or we have good reason to not need it - like out of LSN range
+                     \* Todo: Remove this and assert that this bad file covers only lower range
+                     \* It is bad to have a file entry corresponding to future . :(
                      \/ mdtCoverRange
        /\ IF New_WE.exist
           \* if New_WE is present, it should not be in RE, WE and mentioned in MetadataFile
@@ -427,6 +450,12 @@ MetadataFileCorrect ==
        THEN 1 = 1 \* MetadataFile.lastTailLSN = HighLSN
        \* Todo: What should still be correct in clean shutdown case ?
        ELSE 1 = 1
+
+\* Invariant 4: Valid version number
+CorrectVersionNumber ==
+    IF MetadataFile.lastTailLSN < LowLSN \* some write finished after last TT
+    THEN WE.version = MetadataFile.lastTailVersion
+    ELSE WE.version <= MetadataFile.lastTailVersion
 
 \* Invariants that should fail - Signifies that we have handled these cases.
 
@@ -468,5 +497,5 @@ CrashDataLost ==
     /\ UNCHANGED << LowLSN, MaxNum, REs, WE, TornWrite>>
 =============================================================================
 \* Modification History
-\* Last modified Wed Nov 11 21:53:44 PST 2020 by asnegi
+\* Last modified Thu Nov 12 00:28:31 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
