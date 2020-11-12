@@ -31,30 +31,37 @@ EXTENDS Integers, Sequences
 VARIABLES REs, WE, WEonDisk, LowLSN, HighLSN, PrevState, MaxNum, MetadataFile, 
           TornWrite, 
           THIP, \* TruncateHeadInProgress
-          TTIP \* TruncateTailInProgress
-
+          TTIP, \* TruncateTailInProgress
+          NWEIP, \* New WE In Progress - after current WE is full
+          New_WE
+            
 TypeOK ==
     /\ WE \in [ id: 1..MaxNum, start : 1..MaxNum, end : 1..MaxNum, version : 1..MaxNum ]
     /\ WE.start <= WE.end
+    /\ New_WE \in [ exist: {TRUE, FALSE}, id: 1..MaxNum, start : 1..MaxNum, end : 1..MaxNum, version : 1..MaxNum ]
+    /\ New_WE.start <= New_WE.end
     /\ REs \in Seq([ id: 1..MaxNum, start: 1..MaxNum, end : 1..MaxNum, version : 1..MaxNum])
     /\ WEonDisk \in { TRUE, FALSE }
     /\ LowLSN \in 1..MaxNum
     /\ HighLSN \in 1..MaxNum
-    /\ PrevState \in { "start", "append", "WE_full_move_to_RE", 
-                       "WE_full_new_WE", "crash", "recovery",
+    /\ PrevState \in { "start", "append", "WE_full_New_WE", "New_WE_in_MDT", 
+                       "crash", "recovery", "close",
                        "truncate_head_p1", "truncate_head", 
-                       "truncate_tail_p1", "truncate_tail", "close" }
+                       "truncate_tail_p1", "truncate_tail" }
     /\ MetadataFile \in [ headLSN : 1..MaxNum, lastTailLSN : 1..MaxNum, lastTailVersion : 1..MaxNum, 
                           cleanShutdown : { TRUE, FALSE }, fileIds : Seq(1..MaxNum) ]
+                          
     /\ TornWrite \in { TRUE, FALSE }
     /\ THIP \in { TRUE, FALSE }
     /\ TTIP \in { TRUE, FALSE }
+    /\ NWEIP \in { TRUE, FALSE }
     /\ MaxNum = 7
 
 Init ==
     /\ REs = <<>>
     /\ WE = [id |-> 1, start |-> 1, end |-> 1, version |-> 1]
     /\ WEonDisk = TRUE
+    /\ New_WE = [exist |-> FALSE, id |-> 1, start |-> 1, end |-> 1, version |-> 1]
     /\ LowLSN = 1
     /\ HighLSN = 1
     /\ PrevState = "start"
@@ -63,15 +70,15 @@ Init ==
     /\ TornWrite = FALSE
     /\ THIP = FALSE
     /\ TTIP = FALSE
+    /\ NWEIP = FALSE
     /\ MaxNum = 7
 
 \* Append keeps appending to WE increasing end LSN.
 AppendToFile ==
     \* Append to file is always allowed except crash. 
     \* After crash, we first do recovery.
-    /\ PrevState # "crash"
-    /\ PrevState # "WE_full_move_to_RE"
-    /\ PrevState # "close"
+    /\ PrevState \notin { "crash", "close" }
+    /\ NWEIP # TRUE \* WE is full - moving to new WE
     /\ WEonDisk = TRUE \* should have writeable file on disk
     \* No writes allowed while truncate_tail is in progress.
     /\ TTIP = FALSE
@@ -81,59 +88,65 @@ AppendToFile ==
                         !.version = MetadataFile.lastTailVersion]
     /\ HighLSN' = HighLSN + 1
     /\ PrevState' = "append"
-    /\ UNCHANGED << LowLSN, MaxNum, REs, WEonDisk, MetadataFile, TornWrite, THIP, TTIP >>
+    /\ UNCHANGED << LowLSN, MaxNum, REs, WEonDisk, MetadataFile, TornWrite, THIP, TTIP, NWEIP, New_WE >>
 
-\* Todo : Rethink on how we have broken down "WriteExtentFull" case.
-\*        As it is not crash friendly - 
-\*        as we have 2 atomic operations in NewWriteExtentAppend.
-\* Append fills up write extent file
-\* Make write extent a read only extent
+\* New steps:
+\*  1. Create a new WE file with right data
+\*  2. Add to metadata file and move WE to RE in memory and WE' = new_WE
 \* Todo: Is "Append" only valid previous state ?
-\*       Given that we append in next state : NewWriteExtentAppend ?
-WriteExtentFullMoveToReadOnly ==
+\*       Handle crash after this step
+WriteExtentFullNewWE ==
     /\ PrevState = "append"
-    /\ REs' = Append(REs, WE)
-    /\ WEonDisk' = FALSE
-    /\ PrevState' = "WE_full_move_to_RE"
-    /\ UNCHANGED << LowLSN, HighLSN, MaxNum, WE, MetadataFile, TornWrite, THIP, TTIP >>
+    /\ NWEIP' = TRUE
+    /\ New_WE' = [exist |-> TRUE, id |-> WE.id + 1, start |-> WE.end, end |-> WE.end + 1, version |-> WE.version]
+    /\ PrevState' = "WE_full_New_WE"
+    /\ UNCHANGED << LowLSN, HighLSN, MaxNum, REs, WEonDisk, WE, MetadataFile, TornWrite, THIP, TTIP >>
 
-\* Create new write extent file and open for new appends
-\* Prev state only: "WE_full_move_to_RE"
-NewWriteExtentAppend ==
-    /\ PrevState = "WE_full_move_to_RE"
+\* Add new write extent file to MetadataFile and open for new appends
+\* Todo: Handle crash after this step
+NewWriteExtentAddToMetadataFile ==
+    /\ PrevState = "WE_full_New_WE"
     /\ HighLSN < MaxNum - 1
-    /\ WE' = [id |-> WE.id + 1, start |-> WE.end, end |-> WE.end + 1, version |-> WE.version]
+    \* Change on disk
+    /\ MetadataFile' = [MetadataFile EXCEPT !.fileIds = Append(MetadataFile.fileIds, New_WE.id)]
+    \* In memory change
+    /\ REs' = Append(REs, WE)
+    /\ WE' = [ id |-> New_WE.id,
+               start |-> New_WE.start,
+               end |-> New_WE.end,
+               version |-> New_WE.version ]
+    /\ New_WE' = [ New_WE EXCEPT !.exist = FALSE ]
     /\ HighLSN' = HighLSN + 1
-    /\ PrevState' = "WE_full_new_WE"
+    /\ PrevState' = "New_WE_in_MDT"
     /\ WEonDisk' = TRUE
-    /\ MetadataFile' = [MetadataFile EXCEPT !.fileIds = Append(MetadataFile.fileIds, WE'.id)]
-    /\ UNCHANGED << LowLSN, MaxNum, REs, TornWrite, THIP, TTIP >>
+    /\ NWEIP' = FALSE \* allow appends
+    /\ UNCHANGED << LowLSN, MaxNum, TornWrite, THIP, TTIP >>
 
 \* Crash: torn write : last write ignored
 CrashWhileAppend ==
-    /\ \/ PrevState = "append"
-       \/ PrevState = "WE_full_new_WE"
+    /\ PrevState = "append"
     /\ PrevState' = "crash"
     /\ HighLSN' = HighLSN - 1
     /\ TornWrite' = TRUE
     /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = FALSE]
-    /\ UNCHANGED << LowLSN, MaxNum, REs, WE, WEonDisk, THIP, TTIP >>
+    /\ UNCHANGED << LowLSN, MaxNum, REs, WE, WEonDisk, THIP, TTIP, NWEIP, New_WE >>
     
 CrashNoDataLoss ==
     /\ PrevState' = "crash"
     /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = FALSE]
-    /\ UNCHANGED << LowLSN, MaxNum, HighLSN, REs, WE, WEonDisk, TornWrite, THIP, TTIP >>
+    /\ UNCHANGED << LowLSN, MaxNum, HighLSN, REs, WE, WEonDisk, TornWrite, THIP, TTIP, NWEIP, New_WE >>
 
 Close ==
     /\ PrevState # "crash"
     \* Close waits for workflows to finish: 
     \*    WE_full_to_RE, truncate_head, truncate_tail
     /\ WEonDisk = TRUE
+    /\ NWEIP = FALSE
     /\ TTIP = FALSE
     /\ THIP = FALSE
     /\ PrevState' = "close"
     /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = TRUE]
-    /\ UNCHANGED << LowLSN, MaxNum, HighLSN, REs, WE, WEonDisk, TornWrite, THIP, TTIP >>
+    /\ UNCHANGED << LowLSN, MaxNum, HighLSN, REs, WE, WEonDisk, TornWrite, THIP, TTIP, NWEIP, New_WE >>
     
 
 \* Helper functions -- begin
@@ -206,6 +219,8 @@ Recovery ==
     /\ WEonDisk' = TRUE
     /\ THIP' = FALSE 
     /\ TTIP' = FALSE
+    /\ NWEIP' = FALSE
+    /\ New_WE' = [ New_WE EXCEPT !.exist = FALSE ]
     /\ TornWrite' = FALSE
     /\ UNCHANGED << LowLSN, MaxNum, HighLSN >>
         
@@ -214,11 +229,13 @@ Recovery ==
 \* We broke truncate head in 2 phases to simulate a crash in between 2 stages.
 \* Also, other states like appends can happen in between 2 phases.
 TruncateHeadP1 ==
-    \* truncate_head waits for new WE to exist after full WE.
-    \* Todo: Above is possibly bad as even starting the TruncateHead is waiting.
+    /\ PrevState \notin { "crash", "close" }
+    \* truncate_head waits for new_WE workflow to finish.
+    \* Todo: This is possibly bad as even starting the TruncateHead is waiting.
     \*       It is not very bad because WE_full_move_to_RE has high priority 
     \*       and should finish fast.
-    /\ PrevState \notin { "crash", "close", "WE_full_move_to_RE" }
+    /\ NWEIP = FALSE
+    /\ THIP = FALSE \* Only 1 truncate_head at a time
     /\ LowLSN < HighLSN
     /\ PrevState' = "truncate_head_p1"
     /\ LowLSN' = LowLSN + 1
@@ -228,7 +245,7 @@ TruncateHeadP1 ==
                                             !.lastTailLSN = HighLSN,
                                             !.fileIds = GetAllIds(Append(newREs, WE))]
     /\ THIP' = TRUE
-    /\ UNCHANGED << HighLSN, MaxNum, REs, WE, WEonDisk, TornWrite, TTIP >>
+    /\ UNCHANGED << HighLSN, MaxNum, REs, WE, WEonDisk, TornWrite, TTIP, NWEIP, New_WE >>
 
 TruncateHeadP2 ==
     /\ \/ PrevState = "truncate_head_p1"
@@ -238,7 +255,7 @@ TruncateHeadP2 ==
     /\ REs' = LET nonTruncatedRE(re) == re.end > LowLSN
               IN SelectSeq(REs, nonTruncatedRE)
     /\ THIP' = FALSE
-    /\ UNCHANGED << LowLSN, HighLSN, MaxNum, WE, WEonDisk, MetadataFile, TornWrite, TTIP >>    
+    /\ UNCHANGED << LowLSN, HighLSN, MaxNum, WE, WEonDisk, MetadataFile, TornWrite, TTIP, NWEIP, New_WE >>    
     
 \* TruncateTailP1 :
 \* Phase1 : Update metadata file first.
@@ -249,7 +266,7 @@ TruncateHeadP2 ==
 \* Todo: Is "Append" only valid previous state ?
 TruncateTailP1 ==
     /\ \/ PrevState = "append"
-       \/ PrevState = "WE_full_new_WE"
+       \/ PrevState = "New_WE_in_MDT"
     /\ TTIP = FALSE \* Only one truncate tail allowed at a time.
     /\ LowLSN < HighLSN
     /\ MetadataFile.lastTailVersion < MaxNum - 1
@@ -259,7 +276,7 @@ TruncateTailP1 ==
     /\ MetadataFile' = [MetadataFile EXCEPT !.lastTailLSN = HighLSN',
                                             !.lastTailVersion = MetadataFile.lastTailVersion + 1,
                                             !.fileIds = GetAllIds(Append(REs, WE))]
-    /\ UNCHANGED << LowLSN, WE, REs, MaxNum, WEonDisk, TornWrite, THIP >>
+    /\ UNCHANGED << LowLSN, WE, REs, MaxNum, WEonDisk, TornWrite, THIP, NWEIP, New_WE >>
 
 \* Now, zero WE file's tail in Phase 2.
 TruncateTailP2 ==
@@ -272,20 +289,20 @@ TruncateTailP2 ==
                      IN [ lastRE EXCEPT !.end = lastRE.end - 1]
             /\ REs' = SubSeq(REs, 1, Len(REs)-1)
     /\ TTIP' = FALSE
-    /\ UNCHANGED << LowLSN, HighLSN, MaxNum, WEonDisk, MetadataFile, TornWrite, THIP >>
+    /\ UNCHANGED << LowLSN, HighLSN, MaxNum, WEonDisk, MetadataFile, TornWrite, THIP, NWEIP, New_WE >>
 
 Next ==
     \/ AppendToFile
-    \/ WriteExtentFullMoveToReadOnly
-    \/ NewWriteExtentAppend
+    \/ WriteExtentFullNewWE
+    \/ NewWriteExtentAddToMetadataFile
     \/ CrashWhileAppend
     \/ CrashNoDataLoss
     \/ Close
     \/ Recovery
-    \/ TruncateHeadP1
+    (* \/ TruncateHeadP1
     \/ TruncateHeadP2
     \/ TruncateTailP1
-    \/ TruncateTailP2
+    \/ TruncateTailP2 *)
     \* Not modelling Data Loss. 
     \* I am not sure, if we should just fail to open if we find we lost data 
     \*   so that we build from new replica.    
@@ -403,5 +420,5 @@ CrashDataLost ==
     /\ UNCHANGED << LowLSN, MaxNum, REs, WE, WEonDisk, TornWrite>>
 =============================================================================
 \* Modification History
-\* Last modified Wed Nov 11 14:35:38 PST 2020 by asnegi
+\* Last modified Wed Nov 11 16:15:15 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
