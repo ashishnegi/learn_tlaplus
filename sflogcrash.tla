@@ -73,16 +73,6 @@ Init ==
     /\ MaxNum = 7
 
 \* Helper functions -- begin
-RECURSIVE filterSeq(_,_,_)
-filterSeq(seqs, F(_), result) ==
-    IF seqs = <<>>
-    THEN result
-    ELSE filterSeq(Tail(seqs), 
-                   F, 
-                   IF F(Head(seqs))
-                   THEN Append(result, Head(seqs))
-                   ELSE result)
-
 GetFileIds(files) ==
     [ i \in 1..Len(files) |-> files[i].id ]
 
@@ -145,21 +135,20 @@ NewWriteExtentAddToMetadataFile ==
     \* No writes allowed while truncate_tail is in progress.
     /\ TTIP = FALSE \* How to assert that TTIP is false ?
     \* First change MetadataFile on disk:
-    \* If you see invariant AllMetadataFilesPresentOnDisk, you will see that we 
-    \* can have file entries in MetadataFile which don't exist on disk.
-    \* This can be because of concurrency with TH.     
-    \*      If we replace Append(GetFileIds(REs'), New_WE.id) below
-    \*      we can make sure that metadata file always have valid fileids.
-    \*      But we don't want to do that, as changing MetadataFile on disk first
-    \*      and then changing REs in memory is not atomic.
-    \*      Idea is not use Low/High LSN for changing disk data structures.
-    \*      Hopefully, i am not overthinking.
-    /\ MetadataFile' = [MetadataFile EXCEPT !.fileIds = Append(MetadataFile.fileIds, New_WE.id)]
+    \*   It might seem that, We could have easily done !.fileIds = Append(MetadataFile.fileIds, New_WE.id)
+    \*   but If you do that , invariant AllMetadataFilesPresentOnDisk will fail.
+    \*   i.e. You will see that we can have file entries in MetadataFile which don't exist on disk.
+    \*   This can be because of concurrency with TH. Thanks to TLA+.    
+    \* Don't use LowLSN, HighLSN for MetadataFile:
+    \*      Idea is not use Low/High LSN for changing disk data structures. They are
+    \*      maintained parallely and used for assertion in Invariants.
+    /\ LET validFiles == GetValidFiles(Append(REs, WE), MetadataFile.headLSN, WE.end)
+       IN /\ MetadataFile' = [MetadataFile EXCEPT !.fileIds = Append(GetFileIds(validFiles), New_WE.id)]
     \* Todo: Split changing RE in separate action to see what concurrency can do.
     \* In-memory data structure change
-    \* Because of concurrency in TH, it is possible to get Truncation till last WE
-    \* while we are adding new WE
-    /\ REs' = GetValidFiles(Append(REs, WE), LowLSN, HighLSN)
+    \*      Because of concurrency in TH, it is possible to get Truncation till last WE
+    \*      while we are adding new WE
+          /\ REs' = GetValidFiles(validFiles, LowLSN, HighLSN)
     /\ WE' = [ id      |-> New_WE.id,
                start   |-> New_WE.start,
                end     |-> New_WE.end,
@@ -201,11 +190,7 @@ Close ==
     /\ THIP = FALSE
     /\ PrevState' = "close"
     /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = TRUE,
-       \* Because of race condition in TH and Full_WE workflow, 
-       \* it is possible that MetadataFile contain entry for deleted files
-       \* which are not of [headLSN, tailLSN) range
-                                            !.fileIds = GetFileIds(GetMetadataFiles)
-                                            ]
+                                            !.lastTailLSN = WE.end]
     /\ UNCHANGED << LowLSN, MaxNum, HighLSN, REs, WE, TornWrite, THIP, TTIP, NWEIP, New_WE >>
 
 
@@ -224,7 +209,7 @@ Recovery ==
                 lowLSN == MetadataFile.headLSN
                 lastWE == LET lastWEId == MetadataFile.fileIds[Len(MetadataFile.fileIds)]
                               SameId(r) == r.id = lastWEId
-                          IN Head(filterSeq(allFiles, SameId, <<>>))
+                          IN Head(SelectSeq(allFiles, SameId))
                 \* highLSN:
                 \*     case : Crash during append - TornWrite : Last LSN in write file.
                 \*     case : Crash during TruncateTail phase1
@@ -431,20 +416,10 @@ IsFileIdPresent(fileIds, id) ==
     IN Len(SelectSeq(fileIds, SameId)) = 1
 
 AllMetadataFilesPresentOnDisk ==
-    LET \* MetadataFile should be in clean state after close or recovery.
-        strictMode == PrevState \in { "close", "recovery" }
-        mdtCoverRange == MetadataExtentsCoverDataRange
-        allFiles == Append(REs, WE)
+    LET allFiles == Append(REs, WE)
         allFileIds == [ i \in 1..Len(allFiles) |-> allFiles[i].id ]
     IN /\ \A i \in 1..Len(MetadataFile.fileIds) : 
-                IF strictMode
-                THEN IsFileIdPresent(allFileIds, MetadataFile.fileIds[i])
-                ELSE \* Either file is present
-                     \/ IsFileIdPresent(allFileIds, MetadataFile.fileIds[i])
-                     \* Or we have good reason to not need it - like out of LSN range
-                     \* Todo: Remove this and assert that this bad file covers only lower range
-                     \* It is bad to have a file entry corresponding to future . :(
-                     \/ mdtCoverRange
+                IsFileIdPresent(allFileIds, MetadataFile.fileIds[i])
        /\ IF New_WE.exist
           \* if New_WE is present, it should not be in RE, WE and mentioned in MetadataFile
           \* i.e New_WE is transient file
@@ -459,14 +434,15 @@ MetadataFileCorrect ==
     /\ MetadataFile.headLSN = LowLSN
     /\ AllMetadataFilesPresentOnDisk \* even during crash
     /\ IF MetadataFile.cleanShutdown
-       THEN 1 = 1 \* MetadataFile.lastTailLSN = HighLSN
+       THEN MetadataFile.lastTailLSN = HighLSN
        \* Todo: What should still be correct in clean shutdown case ?
        ELSE 1 = 1
 
 \* Invariant 4: Valid version number
 CorrectVersionNumber ==
-    IF MetadataFile.lastTailLSN < LowLSN \* some write finished after last TT
+    IF MetadataFile.lastTailLSN < HighLSN \* some write finished after last TT
     THEN WE.version = MetadataFile.lastTailVersion
+    \* Multiple TT can happen one after another increasing version no.
     ELSE WE.version <= MetadataFile.lastTailVersion
 
 \* If we have clean shutdown state - except after close, we are in bad state.
@@ -517,5 +493,5 @@ CrashDataLost ==
     /\ UNCHANGED << LowLSN, MaxNum, REs, WE, TornWrite>>
 =============================================================================
 \* Modification History
-\* Last modified Thu Nov 12 15:14:39 PST 2020 by asnegi
+\* Last modified Fri Nov 13 15:06:31 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
