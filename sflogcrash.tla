@@ -4,7 +4,7 @@ EXTENDS Integers, Sequences
 
 \* Spec for a Write Ahead Logger (WAL)
 \* WAL Logger appends data to a file called write extent (WE) which has max capacity of 1 GB.
-\* Once write extent is full, we move it to a set of read files called read extents (RE).
+\* Once write extent is full, we move it to a set of read files called read extents (RE) and create new WE.
 \* Each extent/file has data in range from start to end LSN (logical sequence numbers).
 \*      extent: [ start, end ) where start <= end.
 \*              means that extent contains data from [start, end) // end not included
@@ -530,5 +530,5 @@ CrashDataLost ==
     /\ UNCHANGED << E_LowLSN, MaxNum, REs, WE, TornWrite>>
 =============================================================================
 \* Modification History
-\* Last modified Mon Nov 16 16:30:38 PST 2020 by asnegi
+\* Last modified Mon Nov 16 16:32:52 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
