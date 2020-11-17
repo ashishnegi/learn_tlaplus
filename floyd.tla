@@ -57,8 +57,6 @@ DetectCycle ==
     THEN Fast = Slow \* make it # to see cycle detected
     ELSE Fast # Slow
 
-\* Q. How to generalize for all n from 1..N
-
 \* Failure of this invariant shows TLC ran it for cycle of size 42
 RunsFor42 ==
     IF Done = TRUE
@@ -73,9 +71,12 @@ LongCycle ==
 
 \* stop after levels/step for debugging
 StopTLC ==
-    Steps < 10
+    IF /\ Steps > 10
+       \* /\ Done = FALSE \* Uncomment this to see steps before cycle is not detected
+    THEN FALSE
+    ELSE TRUE
 
 =============================================================================
 \* Modification History
-\* Last modified Mon Nov 16 20:54:14 PST 2020 by asnegi
+\* Last modified Mon Nov 16 21:03:29 PST 2020 by asnegi
 \* Created Mon Nov 16 17:53:19 PST 2020 by asnegi
