@@ -20,9 +20,12 @@
 
 EXTENDS Integers, 
         TLC \* for debugging
+        
 CONSTANTS N
 
 VARIABLES CycleSize, Fast, Slow, Done, Steps
+
+vars == << CycleSize, Fast, Slow, Done, Steps >>
 
 TypeOK ==
     /\ CycleSize \in 1..N
@@ -49,7 +52,16 @@ MovePointers ==
     /\ UNCHANGED << CycleSize >>
     
 Next ==
-    MovePointers
+    \/ MovePointers
+    \/ (Done = TRUE /\ UNCHANGED vars)
+    
+Spec == 
+    /\ Init 
+    /\ [][Next]_vars
+    /\ WF_vars(Next)
+    
+Termination ==
+    <>Done
    
 \* If we are done, hare = tortoise
 DetectCycle ==
@@ -78,5 +90,5 @@ StopTLC ==
 
 =============================================================================
 \* Modification History
-\* Last modified Mon Nov 16 22:33:55 PST 2020 by asnegi
+\* Last modified Tue Nov 17 12:58:57 PST 2020 by asnegi
 \* Created Mon Nov 16 17:53:19 PST 2020 by asnegi
