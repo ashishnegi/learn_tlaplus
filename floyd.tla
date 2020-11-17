@@ -26,15 +26,15 @@ VARIABLES CycleSize, Fast, Slow, Done, Steps
 
 TypeOK ==
     /\ CycleSize \in 1..N
-    /\ Fast \in 1..CycleSize
-    /\ Slow \in 1..CycleSize
+    /\ Fast \in 0..CycleSize-1
+    /\ Slow \in 0..CycleSize-1
     /\ Steps \in Nat
     /\ Done \in {TRUE, FALSE}
 
 Init == 
     /\ CycleSize \in 1..N
-    /\ Fast \in 1..CycleSize
-    /\ Slow \in 1..CycleSize
+    /\ Fast \in 0..CycleSize-1
+    /\ Slow \in 0..CycleSize-1
     /\ Done = FALSE
     /\ Steps = 1
     \* different starting position
@@ -44,7 +44,7 @@ MovePointers ==
     /\ Done = FALSE
     /\ Fast' = (Fast + 2) % CycleSize
     /\ Slow' = (Slow + 1) % CycleSize
-    /\ Done' = IF (Fast' = Slow') THEN TRUE ELSE FALSE
+    /\ Done' = (Fast' = Slow')
     /\ Steps' = Steps + 1
     /\ UNCHANGED << CycleSize >>
     
@@ -71,12 +71,12 @@ LongCycle ==
 
 \* stop after levels/step for debugging
 StopTLC ==
-    IF /\ Steps > 10
+    IF /\ Steps > 100
        \* /\ Done = FALSE \* Uncomment this to see steps before cycle is not detected
     THEN FALSE
     ELSE TRUE
 
 =============================================================================
 \* Modification History
-\* Last modified Mon Nov 16 21:03:29 PST 2020 by asnegi
+\* Last modified Mon Nov 16 22:33:55 PST 2020 by asnegi
 \* Created Mon Nov 16 17:53:19 PST 2020 by asnegi
