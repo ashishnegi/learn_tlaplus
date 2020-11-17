@@ -18,9 +18,9 @@
 \* if we start with {slow = 0, fast = 0/1}, eventually, slow = fast
 \* This is easier to model .. Right ?
 
-EXTENDS Integers
+EXTENDS Integers, 
+        TLC \* for debugging
 CONSTANTS N
-ASSUME N \in 1..100
 
 VARIABLES Fast, Slow, Done
 
@@ -44,17 +44,16 @@ MovePointers ==
     /\ UNCHANGED <<N>>
     
 Next ==
-    MovePointers
-
+    /\ MovePointers
+    /\ TLCGet("level") < 3
+    
 \* If we are done, hare = tortoise
 DetectCycle ==
     IF Done = TRUE
-    THEN Fast = Slow
+    THEN Fast = Slow \* make it # to see cycle detected
     ELSE Fast # Slow
 
-AllDetectCycle ==
-    \A n \in 1..N : DetectCycle
 =============================================================================
 \* Modification History
-\* Last modified Mon Nov 16 18:53:15 PST 2020 by asnegi
+\* Last modified Mon Nov 16 19:11:36 PST 2020 by asnegi
 \* Created Mon Nov 16 17:53:19 PST 2020 by asnegi
