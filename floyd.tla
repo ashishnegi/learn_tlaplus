@@ -44,9 +44,8 @@ MovePointers ==
     /\ UNCHANGED <<N>>
     
 Next ==
-    /\ MovePointers
-    /\ TLCGet("level") < 3
-    
+    MovePointers
+   
 \* If we are done, hare = tortoise
 DetectCycle ==
     IF Done = TRUE
@@ -65,7 +64,11 @@ LongCycle ==
     THEN Fast < Slow + 20
     ELSE 1 = 1
 
+\* stop after levels/step
+StopTLC ==
+    TLCGet("level") < 3
+
 =============================================================================
 \* Modification History
-\* Last modified Mon Nov 16 19:20:20 PST 2020 by asnegi
+\* Last modified Mon Nov 16 19:22:28 PST 2020 by asnegi
 \* Created Mon Nov 16 17:53:19 PST 2020 by asnegi
