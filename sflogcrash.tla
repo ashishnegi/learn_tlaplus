@@ -9,9 +9,17 @@ EXTENDS Integers, Sequences
 \*      extent: [ start, end ) where start <= end.
 \*              means that extent contains data from [start, end) // end not included
 \*              start == end means no data in file.
-\* Data is appened at the end of log called tail.
+\* Data is appened at the end of log called tail. So, data grows from head towards tail.
 \* Other operations performed by logger are truncation of log at head or tail,
 \*       Close and recovery of log at Open.
+\*
+\* State machine valid steps:
+\* 1. There is only 1 Append request at a time.
+\* 2. After close or crash, only recovery runs.
+\* 3. Only 1 TruncateHead request is initiated at a time.
+\* 4. Only 1 TruncateTail request is initiated at a time.
+\* 5. TruncateHead can be initiated with Append.
+\* 6. No other request is served till TruncateTail finishes.
 
 \* Todo:
 \* 1) MetaDataFile corruption is single point of failure.
@@ -522,5 +530,5 @@ CrashDataLost ==
     /\ UNCHANGED << E_LowLSN, MaxNum, REs, WE, TornWrite>>
 =============================================================================
 \* Modification History
-\* Last modified Mon Nov 16 16:22:14 PST 2020 by asnegi
+\* Last modified Mon Nov 16 16:30:38 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
