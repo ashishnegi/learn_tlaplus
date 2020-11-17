@@ -29,10 +29,13 @@ EXTENDS Integers, Sequences
 
 \* Variables are divided into 2 categories:
 \* 1. Variables representing on disk data structures
+This reads a lot like as if E_ are history variables (https://arxiv.org/pdf/1703.05121.pdf).  It usually makes the spec more reable if you use a single history variable that -for each state- stores a record.  See https://github.com/lemmy/PageQueue/blob/f33ac42ab6402b2f6ec4c0f656ea5367b48b6e78/PageQueue.tla#L137-L154 for an example.
 \* 2. Variables representing expected values, prefixed by E_
 \* This means that during recovery, we can't use E_* variables.
 \* E_* variables are used in Invariants to check that disk state is correct.
-VARIABLES PrevState, \* For specicying state machine
+VARIABLES 
+          Like with Vladimir's spec of Floyd's algorithm, you should see if you really need this variable.
+          PrevState, \* For specicying state machine
           WE, \* WE => current file to which logger is appending.
           REs, \* REs => sequence of read only files, which became read only after they were full.
           MetadataFile, \* metadata file storing metadata information of the logger.
@@ -80,6 +83,7 @@ TypeOK ==
     /\ E_THIP \in { TRUE, FALSE }
     /\ E_TTIP \in { TRUE, FALSE }
     /\ E_NWEIP \in { TRUE, FALSE }
+    This says that MaxNum is always 7
     /\ MaxNum = 7
 
 \* Initial state of the system.
