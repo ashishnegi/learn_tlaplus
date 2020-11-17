@@ -9,7 +9,10 @@ EXTENDS Integers, Sequences
 \*      extent: [ start, end ) where start <= end.
 \*              means that extent contains data from [start, end) // end not included
 \*              start == end means no data in file.
-\*      
+\* Data is appened at the end of log called tail.
+\* Other operations performed by logger are truncation of log at head or tail,
+\*       Close and recovery of log at Open.
+
 \* Todo:
 \* 1) MetaDataFile corruption is single point of failure.
 \*        Todo: Create metadataFile.mdlog.tmp file first, 
@@ -519,5 +522,5 @@ CrashDataLost ==
     /\ UNCHANGED << E_LowLSN, MaxNum, REs, WE, TornWrite>>
 =============================================================================
 \* Modification History
-\* Last modified Mon Nov 16 16:08:59 PST 2020 by asnegi
+\* Last modified Mon Nov 16 16:22:14 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
