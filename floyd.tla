@@ -22,17 +22,19 @@ EXTENDS Integers,
         TLC \* for debugging
 CONSTANTS N
 
-VARIABLES Fast, Slow, Done, Steps
+VARIABLES CycleSize, Fast, Slow, Done, Steps
 
 TypeOK ==
-    /\ Fast \in 1..N
-    /\ Slow \in 1..N
+    /\ CycleSize \in 1..N
+    /\ Fast \in 1..CycleSize
+    /\ Slow \in 1..CycleSize
     /\ Steps \in Nat
     /\ Done \in {TRUE, FALSE}
 
 Init == 
-    /\ Fast \in 1..N
-    /\ Slow \in 1..N
+    /\ CycleSize \in 1..N
+    /\ Fast \in 1..CycleSize
+    /\ Slow \in 1..CycleSize
     /\ Done = FALSE
     /\ Steps = 1
     \* different starting position
@@ -40,11 +42,11 @@ Init ==
 
 MovePointers ==
     /\ Done = FALSE
-    /\ Fast' = (Fast + 2) % N
-    /\ Slow' = (Slow + 1) % N
+    /\ Fast' = (Fast + 2) % CycleSize
+    /\ Slow' = (Slow + 1) % CycleSize
     /\ Done' = IF (Fast' = Slow') THEN TRUE ELSE FALSE
     /\ Steps' = Steps + 1
-    /\ UNCHANGED <<N>>
+    /\ UNCHANGED << CycleSize >>
     
 Next ==
     MovePointers
@@ -54,6 +56,8 @@ DetectCycle ==
     IF Done = TRUE
     THEN Fast = Slow \* make it # to see cycle detected
     ELSE Fast # Slow
+
+\* Q. How to generalize for all n from 1..N
 
 \* Failure of this invariant shows TLC ran it for cycle of size 42
 RunsFor42 ==
@@ -73,5 +77,5 @@ StopTLC ==
 
 =============================================================================
 \* Modification History
-\* Last modified Mon Nov 16 20:28:21 PST 2020 by asnegi
+\* Last modified Mon Nov 16 20:54:14 PST 2020 by asnegi
 \* Created Mon Nov 16 17:53:19 PST 2020 by asnegi
