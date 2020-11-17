@@ -22,17 +22,19 @@ EXTENDS Integers,
         TLC \* for debugging
 CONSTANTS N
 
-VARIABLES Fast, Slow, Done
+VARIABLES Fast, Slow, Done, Steps
 
 TypeOK ==
     /\ Fast \in 1..N
     /\ Slow \in 1..N
+    /\ Steps \in Nat
     /\ Done \in {TRUE, FALSE}
 
 Init == 
     /\ Fast \in 1..N
     /\ Slow \in 1..N
     /\ Done = FALSE
+    /\ Steps = 1
     \* different starting position
     /\ Fast # Slow
 
@@ -40,7 +42,8 @@ MovePointers ==
     /\ Done = FALSE
     /\ Fast' = (Fast + 2) % N
     /\ Slow' = (Slow + 1) % N
-    /\ Done' = (Fast' = Slow')              
+    /\ Done' = IF (Fast' = Slow') THEN TRUE ELSE FALSE
+    /\ Steps' = Steps + 1
     /\ UNCHANGED <<N>>
     
 Next ==
@@ -64,11 +67,11 @@ LongCycle ==
     THEN Fast < Slow + 20
     ELSE 1 = 1
 
-\* stop after levels/step
+\* stop after levels/step for debugging
 StopTLC ==
-    TLCGet("level") < 3
+    Steps < 10
 
 =============================================================================
 \* Modification History
-\* Last modified Mon Nov 16 19:22:28 PST 2020 by asnegi
+\* Last modified Mon Nov 16 20:28:21 PST 2020 by asnegi
 \* Created Mon Nov 16 17:53:19 PST 2020 by asnegi
