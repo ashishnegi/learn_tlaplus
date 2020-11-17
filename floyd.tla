@@ -53,7 +53,19 @@ DetectCycle ==
     THEN Fast = Slow \* make it # to see cycle detected
     ELSE Fast # Slow
 
+\* Failure of this invariant shows TLC ran it for cycle of size 42
+RunsFor42 ==
+    IF Done = TRUE
+    THEN Fast # 42
+    ELSE 1 = 1
+
+\* Failure of this invariant shows TLC ran it for numbers far apart.
+LongCycle ==
+    IF Done = FALSE
+    THEN Fast < Slow + 20
+    ELSE 1 = 1
+
 =============================================================================
 \* Modification History
-\* Last modified Mon Nov 16 19:11:36 PST 2020 by asnegi
+\* Last modified Mon Nov 16 19:20:20 PST 2020 by asnegi
 \* Created Mon Nov 16 17:53:19 PST 2020 by asnegi
