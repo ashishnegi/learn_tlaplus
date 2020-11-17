@@ -29,12 +29,12 @@ EXTENDS Integers, Sequences
 
 \* Variables are divided into 2 categories:
 \* 1. Variables representing on disk data structures
-This reads a lot like as if E_ are history variables (https://arxiv.org/pdf/1703.05121.pdf).  It usually makes the spec more reable if you use a single history variable that -for each state- stores a record.  See https://github.com/lemmy/PageQueue/blob/f33ac42ab6402b2f6ec4c0f656ea5367b48b6e78/PageQueue.tla#L137-L154 for an example.
+\*MAK: This reads a lot like as if E_ are history variables (https://arxiv.org/pdf/1703.05121.pdf).  It usually makes the spec more reable if you use a single history variable that -for each state- stores a record.  See https://github.com/lemmy/PageQueue/blob/f33ac42ab6402b2f6ec4c0f656ea5367b48b6e78/PageQueue.tla#L137-L154 for an example.
 \* 2. Variables representing expected values, prefixed by E_
 \* This means that during recovery, we can't use E_* variables.
 \* E_* variables are used in Invariants to check that disk state is correct.
 VARIABLES 
-          Like with Vladimir's spec of Floyd's algorithm, you should see if you really need this variable.
+          \*MAK: Like with Vladimir's spec of Floyd's algorithm, you should see if you really need this variable.
           PrevState, \* For specicying state machine
           WE, \* WE => current file to which logger is appending.
           REs, \* REs => sequence of read only files, which became read only after they were full.
@@ -53,6 +53,7 @@ VARIABLES
           E_NWEIP, \* WE is full and Is New WE creation In Progress ?
           New_WE, \* New_WE file while E_NWEIP is TRUE
           TornWrite, \* Did last crash caused torn write ?
+          \*MAK: It is better to use state or action constraints (https://tla.msr-inria.inria.fr/tlatoolbox/doc/model/spec-options-page.html#state) to constrain your model to a finite state space.  The purpose of the spec to communicate the algorithm.  The Toolbox's model editor lets you re-define everything that model-checkings requires.
           MaxNum \* Variable to restrict TLC Model Checker (MC) to MaxNum steps.
             
 TypeOK ==
@@ -79,11 +80,11 @@ TypeOK ==
     /\ MetadataFile \in [ headLSN : 1..MaxNum, lastTailLSN : 1..MaxNum, lastTailVersion : 1..MaxNum, 
                           cleanShutdown : { TRUE, FALSE }, fileIds : Seq(1..MaxNum) ]
                           
-    /\ TornWrite \in { TRUE, FALSE }
+    /\ TornWrite \in BOOLEAN
     /\ E_THIP \in { TRUE, FALSE }
     /\ E_TTIP \in { TRUE, FALSE }
     /\ E_NWEIP \in { TRUE, FALSE }
-    This says that MaxNum is always 7
+    \*MAK: This says that MaxNum is always 7. Why isn't this a constant?
     /\ MaxNum = 7
 
 \* Initial state of the system.
@@ -496,6 +497,9 @@ LSNSteps ==
 
 \* Spec Ends
 
+\*MAK: Do you check that the algorithm makes progress? Remember, a system that does nothing doesn't violate any safety properties.
+
+
 \* Todo:
 \* Spec after this is WIP and not used.
 
@@ -534,5 +538,7 @@ CrashDataLost ==
     /\ UNCHANGED << E_LowLSN, MaxNum, REs, WE, TornWrite>>
 =============================================================================
 \* Modification History
+\* Last modified Tue Nov 17 09:44:38 PST 2020 by markus
+\* Last modified Tue Nov 17 09:22:58 PST 2020 by markus
 \* Last modified Mon Nov 16 16:32:52 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
