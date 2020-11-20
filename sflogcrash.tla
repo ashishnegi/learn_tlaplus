@@ -29,12 +29,11 @@ EXTENDS Integers, Sequences
 
 \* Variables are divided into 2 categories:
 \* 1. Variables representing on disk data structures
-\*MAK: This reads a lot like as if E_ are history variables (https://arxiv.org/pdf/1703.05121.pdf).  It usually makes the spec more reable if you use a single history variable that -for each state- stores a record.  See https://github.com/lemmy/PageQueue/blob/f33ac42ab6402b2f6ec4c0f656ea5367b48b6e78/PageQueue.tla#L137-L154 for an example.
+\* Todo: MAK: This reads a lot like as if E_ are history variables (https://arxiv.org/pdf/1703.05121.pdf).  It usually makes the spec more reable if you use a single history variable that -for each state- stores a record.  See https://github.com/lemmy/PageQueue/blob/f33ac42ab6402b2f6ec4c0f656ea5367b48b6e78/PageQueue.tla#L137-L154 for an example.
 \* 2. Variables representing expected values, prefixed by E_
 \* This means that during recovery, we can't use E_* variables.
 \* E_* variables are used in Invariants to check that disk state is correct.
 VARIABLES 
-          \*MAK: Like with Vladimir's spec of Floyd's algorithm, you should see if you really need this variable.
           PrevState, \* For specicying state machine
           WE, \* WE => current file to which logger is appending.
           REs, \* REs => sequence of read only files, which became read only after they were full.
@@ -53,7 +52,7 @@ VARIABLES
           E_NWEIP, \* WE is full and Is New WE creation In Progress ?
           New_WE, \* New_WE file while E_NWEIP is TRUE
           TornWrite, \* Did last crash caused torn write ?
-          \*MAK: It is better to use state or action constraints (https://tla.msr-inria.inria.fr/tlatoolbox/doc/model/spec-options-page.html#state) to constrain your model to a finite state space.  The purpose of the spec to communicate the algorithm.  The Toolbox's model editor lets you re-define everything that model-checkings requires.
+          \* Todo: MAK: It is better to use state or action constraints (https://tla.msr-inria.inria.fr/tlatoolbox/doc/model/spec-options-page.html#state) to constrain your model to a finite state space.  The purpose of the spec to communicate the algorithm.  The Toolbox's model editor lets you re-define everything that model-checkings requires.
           MaxNum \* Variable to restrict TLC Model Checker (MC) to MaxNum steps.
             
 TypeOK ==
@@ -78,13 +77,13 @@ TypeOK ==
     \*         after last tail truncation.
     \*         This is needed because we don't update metadata file on every write to log WE file.
     /\ MetadataFile \in [ headLSN : 1..MaxNum, lastTailLSN : 1..MaxNum, lastTailVersion : 1..MaxNum, 
-                          cleanShutdown : { TRUE, FALSE }, fileIds : Seq(1..MaxNum) ]
+                          cleanShutdown : BOOLEAN, fileIds : Seq(1..MaxNum) ]
                           
     /\ TornWrite \in BOOLEAN
-    /\ E_THIP \in { TRUE, FALSE }
-    /\ E_TTIP \in { TRUE, FALSE }
-    /\ E_NWEIP \in { TRUE, FALSE }
-    \*MAK: This says that MaxNum is always 7. Why isn't this a constant?
+    /\ E_THIP \in BOOLEAN
+    /\ E_TTIP \in BOOLEAN
+    /\ E_NWEIP \in BOOLEAN
+    \* Todo: MAK: This says that MaxNum is always 7. Why isn't this a constant?
     /\ MaxNum = 7
 
 \* Initial state of the system.
@@ -339,6 +338,7 @@ TruncateHeadP2 ==
 \* Update metadata file first:
 \* If we crash after updating metadata file, we can truncate tail of WE on recovery.
 \* Other valid states like appends can't run between 2 phases.
+\* Todo : We can truncate tail to any ASN, even below LowASN to truncate all data.
 TruncateTailP1 ==
     /\ PrevState \notin { "crash", "close" }
     \* No append, truncate head going on at this time
@@ -497,7 +497,7 @@ LSNSteps ==
 
 \* Spec Ends
 
-\*MAK: Do you check that the algorithm makes progress? Remember, a system that does nothing doesn't violate any safety properties.
+\* Todo: MAK: Do you check that the algorithm makes progress? Remember, a system that does nothing doesn't violate any safety properties.
 
 
 \* Todo:
@@ -538,7 +538,7 @@ CrashDataLost ==
     /\ UNCHANGED << E_LowLSN, MaxNum, REs, WE, TornWrite>>
 =============================================================================
 \* Modification History
+\* Last modified Fri Nov 20 14:46:20 PST 2020 by asnegi
 \* Last modified Tue Nov 17 09:44:38 PST 2020 by markus
 \* Last modified Tue Nov 17 09:22:58 PST 2020 by markus
-\* Last modified Mon Nov 16 16:32:52 PST 2020 by asnegi
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi

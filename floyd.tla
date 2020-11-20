@@ -52,16 +52,15 @@ MovePointers ==
     /\ UNCHANGED << CycleSize >>
     
 Next ==
-    \/ MovePointers
-    \/ (Done = TRUE /\ UNCHANGED vars)
-    
+    MovePointers
+
 Spec == 
     /\ Init 
     /\ [][Next]_vars
     /\ WF_vars(Next)
     
 Termination ==
-    <>Done
+    <>[]Done
    
 \* If we are done, hare = tortoise
 DetectCycle ==
@@ -90,5 +89,5 @@ StopTLC ==
 
 =============================================================================
 \* Modification History
-\* Last modified Tue Nov 17 12:58:57 PST 2020 by asnegi
+\* Last modified Fri Nov 20 14:29:50 PST 2020 by asnegi
 \* Created Mon Nov 16 17:53:19 PST 2020 by asnegi
