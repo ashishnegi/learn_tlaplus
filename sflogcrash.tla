@@ -53,9 +53,10 @@ VARIABLES
           New_WE, \* New_WE file while E_NWEIP is TRUE
           TornWrite, \* Did last crash caused torn write ?
           \* Todo: MAK: It is better to use state or action constraints (https://tla.msr-inria.inria.fr/tlatoolbox/doc/model/spec-options-page.html#state) to constrain your model to a finite state space.  The purpose of the spec to communicate the algorithm.  The Toolbox's model editor lets you re-define everything that model-checkings requires.
-          MaxNum \* Variable to restrict TLC Model Checker (MC) to MaxNum steps.
+          MaxNum, \* Variable to restrict TLC Model Checker (MC) to MaxNum steps.
+          THCount \* Count of TH running at a time
 
-vars == << PrevState, WE, REs, MetadataFile, E_LowASN, E_HighASN, E_THIP, E_TTIP, E_NWEIP, New_WE, TornWrite, MaxNum >>
+vars == << PrevState, WE, REs, MetadataFile, E_LowASN, E_HighASN, E_THIP, E_TTIP, E_NWEIP, New_WE, TornWrite, MaxNum, THCount>>
 
 TypeOK ==
     /\ WE \in [ id: 1..MaxNum, start : 1..MaxNum, end : 1..MaxNum, version : 1..MaxNum ]
@@ -86,7 +87,8 @@ TypeOK ==
     /\ E_TTIP \in BOOLEAN
     /\ E_NWEIP \in BOOLEAN
     \* Todo: MAK: This says that MaxNum is always 7. Why isn't this a constant?
-    /\ MaxNum = 7
+    /\ MaxNum = 8
+    /\ THCount \in Nat
 
 \* Initial state of the system.
 Init ==
@@ -102,7 +104,8 @@ Init ==
     /\ E_THIP = FALSE
     /\ E_TTIP = FALSE
     /\ E_NWEIP = FALSE
-    /\ MaxNum = 7
+    /\ MaxNum = 8
+    /\ THCount = 0
 
 \* Helper functions -- begin
 \* Don't use E_* variables in helper functions.
@@ -138,7 +141,7 @@ AppendToFile ==
                         !.version = MetadataFile.lastTailVersion]
     /\ E_HighASN' = E_HighASN + 1 \* Ack to customer that write succeeded
     /\ PrevState' = "append"
-    /\ UNCHANGED << E_LowASN, MaxNum, REs, MetadataFile, TornWrite, E_THIP, E_TTIP, E_NWEIP, New_WE >>
+    /\ UNCHANGED << E_LowASN, MaxNum, REs, MetadataFile, TornWrite, E_THIP, E_TTIP, E_NWEIP, New_WE, THCount >>
 
 \* Action : Write extent is full - Create new Write Extent/file
 \*  1. Create a new WE file with right header and append data
@@ -162,7 +165,7 @@ WriteExtentFullNewWE ==
                    version |-> MetadataFile.lastTailVersion]
 
     /\ PrevState' = "WE_full_New_WE"
-    /\ UNCHANGED << E_LowASN, E_HighASN, MaxNum, REs, WE, MetadataFile, TornWrite, E_THIP, E_TTIP >>
+    /\ UNCHANGED << E_LowASN, E_HighASN, MaxNum, REs, WE, MetadataFile, TornWrite, E_THIP, E_TTIP, THCount >>
 
 \* Add new write extent file to MetadataFile and open for new appends
 NewWriteExtentAddToMetadataFile ==
@@ -195,7 +198,7 @@ NewWriteExtentAddToMetadataFile ==
     /\ E_HighASN' = E_HighASN + 1 \* Ack to customer that write succeeded
     /\ PrevState' = "New_WE_in_MDT"
     /\ E_NWEIP' = FALSE \* allow appends to WE now
-    /\ UNCHANGED << E_LowASN, MaxNum, TornWrite, E_THIP, E_TTIP >>
+    /\ UNCHANGED << E_LowASN, MaxNum, TornWrite, E_THIP, E_TTIP, THCount >>
 
 \* Crash: torn write : last write ignored
 \* We can't have torn write in case of New_WE, as only after write is successful, 
@@ -208,7 +211,7 @@ CrashWhileAppend ==
     \* don't change metadata file as we can't do it during crash
     \* Invariant : CleanShutdownOnlyAfterClose makes sure that we have clean bit set only after close
     \* /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = FALSE]
-    /\ UNCHANGED << E_LowASN, MaxNum, REs, WE, E_THIP, E_TTIP, E_NWEIP, New_WE, MetadataFile >>
+    /\ UNCHANGED << E_LowASN, MaxNum, REs, WE, E_THIP, E_TTIP, E_NWEIP, New_WE, MetadataFile, THCount >>
 
 \* Normal crash that does not cause data loss
 CrashNoDataLoss ==
@@ -217,7 +220,7 @@ CrashNoDataLoss ==
     \* don't change metadata file as we can't do it during crash
     \* Invariant : CleanShutdownOnlyAfterClose makes sure that we have clean bit as TRUE only after close
     \* /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = FALSE]
-    /\ UNCHANGED << E_LowASN, MaxNum, E_HighASN, REs, WE, TornWrite, E_THIP, E_TTIP, E_NWEIP, New_WE, MetadataFile >>
+    /\ UNCHANGED << E_LowASN, MaxNum, E_HighASN, REs, WE, TornWrite, E_THIP, E_TTIP, E_NWEIP, New_WE, MetadataFile, THCount >>
 
 \* Close the log file.
 \* Waits for all operations to finish on log and sets the clean shutdown bit to true.
@@ -231,7 +234,7 @@ Close ==
     /\ PrevState' = "close"
     /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = TRUE,
                                             !.lastTailASN = WE.end]
-    /\ UNCHANGED << E_LowASN, MaxNum, E_HighASN, REs, WE, TornWrite, E_THIP, E_TTIP, E_NWEIP, New_WE >>
+    /\ UNCHANGED << E_LowASN, MaxNum, E_HighASN, REs, WE, TornWrite, E_THIP, E_TTIP, E_NWEIP, New_WE, THCount >>
 
 
 \* Action: Recovery : It happens on Open
@@ -287,7 +290,7 @@ Recovery ==
     \* Delete New_WE file if it exists -- crash happened before updating MetadataFile
     /\ New_WE' = [ New_WE EXCEPT !.exist = FALSE ]
     /\ TornWrite' = FALSE
-    /\ UNCHANGED << E_LowASN, MaxNum, E_HighASN >>
+    /\ UNCHANGED << E_LowASN, MaxNum, E_HighASN, THCount >>
         
 \* TruncateHead (TH):
 \* Remove old data from the log.
@@ -300,9 +303,7 @@ Recovery ==
 \* Phase1 : Update metadata file first.
 TruncateHeadP1 ==
     /\ PrevState \notin { "crash", "close" }
-    \* truncate_head waits for new_WE workflow to finish.
-    \* Todo: This is possibly bad as even starting the TruncateHead is waiting.
-    \*       It is not very bad because New_WE workflow should finish fast and is also rare.
+    \* truncate_head does NOT wait for new_WE workflow to finish.
     \* /\ E_NWEIP = FALSE
     /\ E_TTIP = FALSE \* No truncate tail in progress.
     /\ E_LowASN < E_HighASN
@@ -317,6 +318,7 @@ TruncateHeadP1 ==
                                             !.lastTailASN = E_HighASN,
                                             !.fileIds = GetFileIds(Append(newREs, WE))]
     /\ E_THIP' = TRUE
+    /\ THCount' = THCount + 1
     /\ UNCHANGED << E_HighASN, MaxNum, REs, WE, TornWrite, E_TTIP, E_NWEIP, New_WE >>
 
 \* Delete/Zero out RE files in 2nd phase of TruncateHead
@@ -328,6 +330,7 @@ TruncateHeadP2 ==
     /\ REs' = LET nonTruncatedRE(re) == re.end > E_LowASN
               IN SelectSeq(REs, nonTruncatedRE)
     /\ E_THIP' = FALSE
+    /\ THCount' = THCount - 1
     /\ UNCHANGED << E_LowASN, E_HighASN, MaxNum, WE, MetadataFile, TornWrite, E_TTIP, E_NWEIP, New_WE >>
     
 \* TruncateTailP1 :
@@ -360,7 +363,7 @@ TruncateTailP1 ==
        IN MetadataFile' = [MetadataFile EXCEPT !.lastTailASN = E_HighASN',
                                                !.lastTailVersion = MetadataFile.lastTailVersion + 1,
                                                !.fileIds = GetFileIds(validExtents)]
-    /\ UNCHANGED << E_LowASN, WE, REs, MaxNum, TornWrite, E_THIP, E_NWEIP, New_WE >>
+    /\ UNCHANGED << E_LowASN, WE, REs, MaxNum, TornWrite, E_THIP, E_NWEIP, New_WE, THCount >>
 
 \* Now, actual delete file/zero WE file's tail in Phase 2.
 TruncateTailP2 ==
@@ -373,7 +376,7 @@ TruncateTailP2 ==
                      IN [ lastRE EXCEPT !.end = lastRE.end - 1]
             /\ REs' = SubSeq(REs, 1, Len(REs)-1)
     /\ E_TTIP' = FALSE
-    /\ UNCHANGED << E_LowASN, E_HighASN, MaxNum, MetadataFile, TornWrite, E_THIP, E_NWEIP, New_WE >>
+    /\ UNCHANGED << E_LowASN, E_HighASN, MaxNum, MetadataFile, TornWrite, E_THIP, E_NWEIP, New_WE, THCount >>
 
 Next ==
     \/ AppendToFile
@@ -507,23 +510,31 @@ ASNSteps ==
 \* Todo: MAK: Do you check that the algorithm makes progress? 
 \* Remember, a system that does nothing doesn't violate any safety properties.
 
-
-\* Todo:
-\* Spec after this is WIP and not used.
-
 \* Invariants that should fail - Signifies that we have handled these cases.
-\* TruncateTail is not called on empty WE for truncating data upto REs
-\* Todo: This is not failing - This case is not handled.
-\* Using E_TTIP is not correct as that means that TT has already begin.
+
+\* TruncateTail is called on empty WE for truncating data of REs.
+\* Since WE is not change in TTP1, if this invariant fails, we know TLC generated case
+\* of TT called when WE is empty.
 TruncateTailCalledOnEmptyWE ==
     ~ ( /\ E_TTIP = TRUE
         /\ WE.start = WE.end
       )
 
+\* TruncateHail is called on empty WE for truncating data of REs.
+\* Since WE is not change in THP1, if this invariant fails, we know TLC generated case
+\* of TH called when WE is empty.
 TruncateHeadCalledOnEmptyWE == 
     ~ ( /\ E_THIP = TRUE
         /\ WE.start = WE.end
       )
+
+\* Multiple TH can come in phase 1
+\* Negation is to fail the invariant and see that it is actually happening.
+MultipleTHP1 ==
+    ~ ( THCount > 1 )
+
+\* Todo:
+\* Spec after this is WIP and not used.
 
 \* Crash: Not modelling case of data lost.
 \* we lost all data after some ASN
@@ -543,10 +554,10 @@ CrashDataLost ==
                   THEN MaxOf2(E_LowASN, 3)
                   ELSE MaxOf2(E_LowASN, 1)
     /\ MetadataFile' = [MetadataFile EXCEPT !.cleanShutdown = FALSE]
-    /\ UNCHANGED << E_LowASN, MaxNum, REs, WE, TornWrite>>
+    /\ UNCHANGED << E_LowASN, MaxNum, REs, WE, TornWrite, THCount >>
 =============================================================================
 \* Modification History
-\* Last modified Tue Nov 24 00:39:26 PST 2020 by asnegi
+\* Last modified Tue Nov 24 00:55:34 PST 2020 by asnegi
 \* Last modified Tue Nov 17 09:44:38 PST 2020 by markus
 \* Last modified Tue Nov 17 09:22:58 PST 2020 by markus
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
