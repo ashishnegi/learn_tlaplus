@@ -54,7 +54,9 @@ VARIABLES
           TornWrite, \* Did last crash caused torn write ?
           \* Todo: MAK: It is better to use state or action constraints (https://tla.msr-inria.inria.fr/tlatoolbox/doc/model/spec-options-page.html#state) to constrain your model to a finite state space.  The purpose of the spec to communicate the algorithm.  The Toolbox's model editor lets you re-define everything that model-checkings requires.
           MaxNum \* Variable to restrict TLC Model Checker (MC) to MaxNum steps.
-            
+
+vars == << PrevState, WE, REs, MetadataFile, E_LowASN, E_HighASN, E_THIP, E_TTIP, E_NWEIP, New_WE, TornWrite, MaxNum >>
+
 TypeOK ==
     /\ WE \in [ id: 1..MaxNum, start : 1..MaxNum, end : 1..MaxNum, version : 1..MaxNum ]
     /\ WE.start <= WE.end
@@ -301,7 +303,7 @@ TruncateHeadP1 ==
     \* truncate_head waits for new_WE workflow to finish.
     \* Todo: This is possibly bad as even starting the TruncateHead is waiting.
     \*       It is not very bad because New_WE workflow should finish fast and is also rare.
-    /\ E_NWEIP = FALSE
+    \* /\ E_NWEIP = FALSE
     /\ E_TTIP = FALSE \* No truncate tail in progress.
     /\ E_LowASN < E_HighASN
     /\ PrevState' = "truncate_head_p1"
@@ -389,6 +391,11 @@ Next ==
     \* I am not sure, if we should just fail to open if we find we lost data 
     \*   so that we build from new replica.    
     \* \/ CrashDataLost
+
+Spec ==
+    /\ Init
+    /\ [][Next]_vars
+    /\ WF_vars(Next)
     
 \* Invariants:
 
@@ -497,7 +504,8 @@ ASNSteps ==
 
 \* Spec Ends
 
-\* Todo: MAK: Do you check that the algorithm makes progress? Remember, a system that does nothing doesn't violate any safety properties.
+\* Todo: MAK: Do you check that the algorithm makes progress? 
+\* Remember, a system that does nothing doesn't violate any safety properties.
 
 
 \* Todo:
@@ -538,7 +546,7 @@ CrashDataLost ==
     /\ UNCHANGED << E_LowASN, MaxNum, REs, WE, TornWrite>>
 =============================================================================
 \* Modification History
-\* Last modified Fri Nov 20 14:51:49 PST 2020 by asnegi
+\* Last modified Tue Nov 24 00:39:26 PST 2020 by asnegi
 \* Last modified Tue Nov 17 09:44:38 PST 2020 by markus
 \* Last modified Tue Nov 17 09:22:58 PST 2020 by markus
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi
