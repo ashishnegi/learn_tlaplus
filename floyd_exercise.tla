@@ -31,13 +31,7 @@ ASSUME N \in Nat
 \* Nodes are in set 1..N
 Nodes == 1..N
 
-(***************************************************************************)
 (* NIL is a termination value of the linekd list                           *)
-(*                                                                         *)
-(* to be able to work correctly model should have definition               *)
-(*                                                                         *)
-(* CONSTANT NIL= NIL                                                       *)
-(***************************************************************************)
 NIL == CHOOSE NIL : NIL \notin Nodes
 
 VARIABLES start, succ, cycle, tortoise, hare, done
@@ -118,5 +112,5 @@ PartialCorrectness == done = TRUE => (cycle <=> HasCycle(start))
 
 =============================================================================
 \* Modification History
-\* Last modified Mon Nov 23 20:25:00 PST 2020 by asnegi
+\* Last modified Tue Nov 24 00:30:48 PST 2020 by asnegi
 \* Created Mon Nov 23 20:01:18 PST 2020 by asnegi
