@@ -58,10 +58,19 @@ getNextNextNode(node) ==
 
 Init == (* Global variables *)
         /\ start \in Nodes
+(***************************************************************************)
+(* succ variable contains DOMAIN of all possible permutation of linekd     *)
+(* list for exmaple tuple <<2, 3, NULL>> we start from index 1             *)
+(*  so next item in out linked list will be succ[1] in our case 2          *)
+(*  succ[1] => 2; succ[2] => 3; succ[3] => null                            *)
+(***************************************************************************)
         /\ succ \in [Nodes -> Nodes \union {NIL}]
-        /\ hare = getNextNode(start)
-        /\ tortoise = getNextNextNode(start)
+        /\ hare = getNextNextNode(start)
+        /\ tortoise = getNextNode(start)
         /\ cycle = FALSE
+(***************************************************************************)
+(* termination condition, should be set to TRUE when final state reached   *)
+(***************************************************************************)
         /\ done = FALSE
 
 \* Comment for Students: Implement this Action.

@@ -32,7 +32,7 @@ TypeOK ==
     /\ Fast \in 0..CycleSize-1
     /\ Slow \in 0..CycleSize-1
     /\ Steps \in Nat
-    /\ Done \in {TRUE, FALSE}
+    /\ Done \in BOOLEAN
 
 Init == 
     /\ CycleSize \in 1..N
@@ -89,5 +89,5 @@ StopTLC ==
 
 =============================================================================
 \* Modification History
-\* Last modified Fri Nov 20 14:29:50 PST 2020 by asnegi
+\* Last modified Mon Nov 23 20:34:19 PST 2020 by asnegi
 \* Created Mon Nov 16 17:53:19 PST 2020 by asnegi
