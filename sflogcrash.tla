@@ -18,7 +18,7 @@ EXTENDS Integers, Sequences
 \* 2. After close or crash, only recovery runs.
 \* 3. Only 1 TruncateHead request is initiated at a time.
 \* 4. Only 1 TruncateTail request is initiated at a time.
-\* 5. TruncateHead can be initiated with Append.
+\* 5. TruncateHead can happen in parallel with Append.
 \* 6. No other request is served till TruncateTail finishes.
 
 \* Todo:
@@ -26,6 +26,7 @@ EXTENDS Integers, Sequences
 \*        Todo: Create metadataFile.mdlog.tmp file first, 
 \*              then delete metadataFile.mdlog and rename .mdlog.tmp to .mdlog
 \*              Handle crash after each step in Recovery.
+\*        Check with Store metadata file ?
 
 \* Variables are divided into 2 categories:
 \* 1. Variables representing on disk data structures
@@ -163,7 +164,6 @@ WriteExtentFullNewWE ==
     /\ New_WE' = [ exist |-> TRUE, id |-> WE.id + 1, start |-> WE.end, end |-> WE.end + 1, 
                    \* Next write after TruncateTail will append to file with new version number. Thanks TLA+
                    version |-> MetadataFile.lastTailVersion]
-
     /\ PrevState' = "WE_full_New_WE"
     /\ UNCHANGED << E_LowASN, E_HighASN, MaxNum, REs, WE, MetadataFile, TornWrite, E_THIP, E_TTIP, THCount >>
 
@@ -266,6 +266,7 @@ Recovery ==
                 highASN == LET lastValidWrite == lastWE.end
                            IN IF TornWrite 
                               THEN lastValidWrite - 1
+                              \* Because of TruncateTail
                               ELSE IF lastWE.version < MetadataFile.lastTailVersion
                               THEN MetadataFile.lastTailASN
                               ELSE lastValidWrite
@@ -557,7 +558,7 @@ CrashDataLost ==
     /\ UNCHANGED << E_LowASN, MaxNum, REs, WE, TornWrite, THCount >>
 =============================================================================
 \* Modification History
-\* Last modified Tue Nov 24 00:55:34 PST 2020 by asnegi
+\* Last modified Mon Dec 21 16:31:34 PST 2020 by asnegi
 \* Last modified Tue Nov 17 09:44:38 PST 2020 by markus
 \* Last modified Tue Nov 17 09:22:58 PST 2020 by markus
 \* Created Wed Oct 28 17:55:29 PDT 2020 by asnegi

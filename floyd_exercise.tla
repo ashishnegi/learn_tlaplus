@@ -2,7 +2,7 @@
 
 (***************************************************************************)
 (* TLA+ Study Group Exercise: 11/24/2020 *)
-(* this is a algorithm of detecting a cycle in a linekd list, using O(1)   *)
+(* this is a algorithm of detecting a cycle in a linked list, using O(1)   *)
 (* space.  This algorithm was invented by Robert Floyd and it was called   *)
 (* "The Tortoise and the Hare"                                             *)
 (* https://dev.to/alisabaj/floyd-s-tortoise-and-hare-algorithm-finding-a-cycle-in-a-linked-list-39af *)
@@ -59,7 +59,7 @@ Init == (* Global variables *)
 (*  succ[1] => 2; succ[2] => 3; succ[3] => null                            *)
 (***************************************************************************)
         /\ succ \in [Nodes -> Nodes \union {NIL}]
-        /\ hare = getNextNextNode(start)
+        /\ hare = getNextNode(getNextNode(start))
         /\ tortoise = getNextNode(start)
         /\ cycle = FALSE
 (***************************************************************************)
@@ -112,5 +112,5 @@ PartialCorrectness == done = TRUE => (cycle <=> HasCycle(start))
 
 =============================================================================
 \* Modification History
-\* Last modified Tue Nov 24 00:30:48 PST 2020 by asnegi
+\* Last modified Tue Nov 24 20:12:20 PST 2020 by asnegi
 \* Created Mon Nov 23 20:01:18 PST 2020 by asnegi
