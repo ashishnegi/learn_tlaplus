@@ -75,13 +75,15 @@ begin Checkpoint:
 end process;
 
 process enumerable = "enumerable"
-variable localEnumerable = <<>>;
+variable localEnumerable = <<>>, snapDifferentialState = <<>>;
 begin Enumerable:
     while TRUE do
         Enumerable1:
-        localEnumerable := Append(consolidatedState, differentialState);
+        snapDifferentialState := differentialState;
         Enumerable2:
-        mergedEnumerable := IF \E c \in DOMAIN consolidatedState: consolidatedState[c].id = differentialState.id
+        localEnumerable := Append(consolidatedState, snapDifferentialState);
+        Enumerable3:
+        mergedEnumerable := IF \E c \in DOMAIN consolidatedState: consolidatedState[c].id = snapDifferentialState.id
                             THEN consolidatedState
                             ELSE localEnumerable
     end while;
@@ -116,10 +118,10 @@ TypeOk ==
     /\ consolidatedState \in Seq([id: Nat, size: Nat])
     /\ history \in [numWrites: Nat]
 
-VARIABLE localEnumerable
+VARIABLES localEnumerable, snapDifferentialState
 
 vars == << differentialState, consolidatedState, mergedEnumerable, history, 
-           nextId, pc, localEnumerable >>
+           nextId, pc, localEnumerable, snapDifferentialState >>
 
 ProcSet == {"writer"} \cup {"checkpoint"} \cup {"enumerable"}
 
@@ -131,6 +133,7 @@ Init == (* Global variables *)
         /\ nextId = 1
         (* Process enumerable *)
         /\ localEnumerable = <<>>
+        /\ snapDifferentialState = <<>>
         /\ pc = [self \in ProcSet |-> CASE self = "writer" -> "Write"
                                         [] self = "checkpoint" -> "Checkpoint"
                                         [] self = "enumerable" -> "Enumerable"]
@@ -140,7 +143,7 @@ Write == /\ pc["writer"] = "Write"
          /\ history' = [history EXCEPT !.numWrites = history.numWrites + 1]
          /\ pc' = [pc EXCEPT !["writer"] = "Write"]
          /\ UNCHANGED << consolidatedState, mergedEnumerable, nextId, 
-                         localEnumerable >>
+                         localEnumerable, snapDifferentialState >>
 
 writer == Write
 
@@ -149,27 +152,30 @@ Checkpoint == /\ pc["checkpoint"] = "Checkpoint"
               /\ pc' = [pc EXCEPT !["checkpoint"] = "PrepareCheckpoint1"]
               /\ UNCHANGED << differentialState, consolidatedState, 
                               mergedEnumerable, history, nextId, 
-                              localEnumerable >>
+                              localEnumerable, snapDifferentialState >>
 
 PrepareCheckpoint1 == /\ pc["checkpoint"] = "PrepareCheckpoint1"
                       /\ consolidatedState' = Append(consolidatedState, differentialState)
                       /\ pc' = [pc EXCEPT !["checkpoint"] = "PrepareCheckpoint2"]
                       /\ UNCHANGED << differentialState, mergedEnumerable, 
-                                      history, nextId, localEnumerable >>
+                                      history, nextId, localEnumerable, 
+                                      snapDifferentialState >>
 
 PrepareCheckpoint2 == /\ pc["checkpoint"] = "PrepareCheckpoint2"
                       /\ differentialState' = [id |-> nextId, size |-> 0]
                       /\ nextId' = nextId + 1
                       /\ pc' = [pc EXCEPT !["checkpoint"] = "PrepareCheckpointDone"]
                       /\ UNCHANGED << consolidatedState, mergedEnumerable, 
-                                      history, localEnumerable >>
+                                      history, localEnumerable, 
+                                      snapDifferentialState >>
 
 PrepareCheckpointDone == /\ pc["checkpoint"] = "PrepareCheckpointDone"
                          /\ TRUE
                          /\ pc' = [pc EXCEPT !["checkpoint"] = "Checkpoint"]
                          /\ UNCHANGED << differentialState, consolidatedState, 
                                          mergedEnumerable, history, nextId, 
-                                         localEnumerable >>
+                                         localEnumerable, 
+                                         snapDifferentialState >>
 
 checkpoint == Checkpoint \/ PrepareCheckpoint1 \/ PrepareCheckpoint2
                  \/ PrepareCheckpointDone
@@ -178,23 +184,31 @@ Enumerable == /\ pc["enumerable"] = "Enumerable"
               /\ pc' = [pc EXCEPT !["enumerable"] = "Enumerable1"]
               /\ UNCHANGED << differentialState, consolidatedState, 
                               mergedEnumerable, history, nextId, 
-                              localEnumerable >>
+                              localEnumerable, snapDifferentialState >>
 
 Enumerable1 == /\ pc["enumerable"] = "Enumerable1"
-               /\ localEnumerable' = Append(consolidatedState, differentialState)
+               /\ snapDifferentialState' = differentialState
                /\ pc' = [pc EXCEPT !["enumerable"] = "Enumerable2"]
                /\ UNCHANGED << differentialState, consolidatedState, 
-                               mergedEnumerable, history, nextId >>
+                               mergedEnumerable, history, nextId, 
+                               localEnumerable >>
 
 Enumerable2 == /\ pc["enumerable"] = "Enumerable2"
-               /\ mergedEnumerable' = (IF \E c \in DOMAIN consolidatedState: consolidatedState[c].id = differentialState.id
+               /\ localEnumerable' = Append(consolidatedState, snapDifferentialState)
+               /\ pc' = [pc EXCEPT !["enumerable"] = "Enumerable3"]
+               /\ UNCHANGED << differentialState, consolidatedState, 
+                               mergedEnumerable, history, nextId, 
+                               snapDifferentialState >>
+
+Enumerable3 == /\ pc["enumerable"] = "Enumerable3"
+               /\ mergedEnumerable' = (IF \E c \in DOMAIN consolidatedState: consolidatedState[c].id = snapDifferentialState.id
                                        THEN consolidatedState
                                        ELSE localEnumerable)
                /\ pc' = [pc EXCEPT !["enumerable"] = "Enumerable"]
                /\ UNCHANGED << differentialState, consolidatedState, history, 
-                               nextId, localEnumerable >>
+                               nextId, localEnumerable, snapDifferentialState >>
 
-enumerable == Enumerable \/ Enumerable1 \/ Enumerable2
+enumerable == Enumerable \/ Enumerable1 \/ Enumerable2 \/ Enumerable3
 
 Next == writer \/ checkpoint \/ enumerable
 
@@ -203,5 +217,5 @@ Spec == Init /\ [][Next]_vars
 \* END TRANSLATION - the hash of the generated TLA code (remove to silence divergence warnings): TLA-ba0adce1479b0526898fc49d3f7b6113
 =============================================================================
 \* Modification History
-\* Last modified Sat Aug 14 09:33:41 PDT 2021 by asnegi
+\* Last modified Sat Aug 14 09:38:25 PDT 2021 by asnegi
 \* Created Fri Jul 30 18:57:13 PDT 2021 by asnegi
