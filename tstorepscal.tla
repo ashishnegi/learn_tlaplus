@@ -11,7 +11,7 @@ variables differentialState = [id |-> 0, size |-> 0],
 
 define
     AllUniqueInConsolidated ==
-        \/ pc["checkpoint"] # "PrepareCheckpointDone"
+        \/ pc["checkpoint"] \in { "PrepareCheckpoint1", "PrepareCheckpoint2" }
         \/ /\ \A cs \in DOMAIN consolidatedState: consolidatedState[cs].id < differentialState.id
             /\ \A cs1, cs2 \in DOMAIN consolidatedState:
                 \/ cs1 = cs2
@@ -31,6 +31,7 @@ end define;
 process writer = "writer"
 begin Write:
     while TRUE do
+        await pc["checkpoint"] \notin { "PrepareCheckpoint1", "PrepareCheckpoint2" };
         differentialState := [differentialState EXCEPT !.size = differentialState.size + 1];
     end while;
 end process;
@@ -65,12 +66,12 @@ begin Enumerable:
 end process;
 end algorithm;*)
 
-\* BEGIN TRANSLATION - the hash of the PCal code: PCal-ba31dc15f4dfd2c855a56af691a48696 (chksum(pcal) = "dbce1629" /\ chksum(tla) = "c43bdf97") (chksum(pcal) = "dbce1629" /\ chksum(tla) = "c43bdf97") (chksum(pcal) = "f85ee517" /\ chksum(tla) = "a063f0c8") (chksum(pcal) = "ff8211d1" /\ chksum(tla) = "5147be61") (chksum(pcal) = "1fa04d02" /\ chksum(tla) = "c71e981d")
+\* BEGIN TRANSLATION - the hash of the PCal code: PCal-ba31dc15f4dfd2c855a56af691a48696 (chksum(pcal) = "dbce1629" /\ chksum(tla) = "c43bdf97") (chksum(pcal) = "dbce1629" /\ chksum(tla) = "c43bdf97") (chksum(pcal) = "f85ee517" /\ chksum(tla) = "a063f0c8") (chksum(pcal) = "ff8211d1" /\ chksum(tla) = "5147be61") (chksum(pcal) = "1fa04d02" /\ chksum(tla) = "c71e981d") (chksum(pcal) = "edb08381" /\ chksum(tla) = "d3317524")
 VARIABLES differentialState, consolidatedState, mergedEnumerable, nextId, pc
 
 (* define statement *)
 AllUniqueInConsolidated ==
-    \/ pc["checkpoint"] # "PrepareCheckpointDone"
+    \/ pc["checkpoint"] \in { "PrepareCheckpoint1", "PrepareCheckpoint2" }
     \/ /\ \A cs \in DOMAIN consolidatedState: consolidatedState[cs].id < differentialState.id
         /\ \A cs1, cs2 \in DOMAIN consolidatedState:
             \/ cs1 = cs2
@@ -102,6 +103,7 @@ Init == (* Global variables *)
                                         [] self = "enumerable" -> "Enumerable"]
 
 Write == /\ pc["writer"] = "Write"
+         /\ pc["checkpoint"] \notin { "PrepareCheckpoint1", "PrepareCheckpoint2" }
          /\ differentialState' = [differentialState EXCEPT !.size = differentialState.size + 1]
          /\ pc' = [pc EXCEPT !["writer"] = "Write"]
          /\ UNCHANGED << consolidatedState, mergedEnumerable, nextId >>
@@ -149,5 +151,5 @@ Spec == Init /\ [][Next]_vars
 \* END TRANSLATION - the hash of the generated TLA code (remove to silence divergence warnings): TLA-ba0adce1479b0526898fc49d3f7b6113
 =============================================================================
 \* Modification History
-\* Last modified Fri Aug 13 22:20:27 PDT 2021 by asnegi
+\* Last modified Fri Aug 13 22:25:26 PDT 2021 by asnegi
 \* Created Fri Jul 30 18:57:13 PDT 2021 by asnegi
