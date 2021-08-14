@@ -75,9 +75,15 @@ begin Checkpoint:
 end process;
 
 process enumerable = "enumerable"
+variable localEnumerable = <<>>;
 begin Enumerable:
     while TRUE do
-        mergedEnumerable := Append(consolidatedState, differentialState);
+        Enumerable1:
+        localEnumerable := Append(consolidatedState, differentialState);
+        Enumerable2:
+        mergedEnumerable := IF \E c \in DOMAIN consolidatedState: consolidatedState[c].id = differentialState.id
+                            THEN consolidatedState
+                            ELSE localEnumerable
     end while;
 end process;
 end algorithm;*)
@@ -110,9 +116,10 @@ TypeOk ==
     /\ consolidatedState \in Seq([id: Nat, size: Nat])
     /\ history \in [numWrites: Nat]
 
+VARIABLE localEnumerable
 
 vars == << differentialState, consolidatedState, mergedEnumerable, history, 
-           nextId, pc >>
+           nextId, pc, localEnumerable >>
 
 ProcSet == {"writer"} \cup {"checkpoint"} \cup {"enumerable"}
 
@@ -122,6 +129,8 @@ Init == (* Global variables *)
         /\ mergedEnumerable = <<>>
         /\ history = [numWrites |-> 0]
         /\ nextId = 1
+        (* Process enumerable *)
+        /\ localEnumerable = <<>>
         /\ pc = [self \in ProcSet |-> CASE self = "writer" -> "Write"
                                         [] self = "checkpoint" -> "Checkpoint"
                                         [] self = "enumerable" -> "Enumerable"]
@@ -130,7 +139,8 @@ Write == /\ pc["writer"] = "Write"
          /\ differentialState' = [differentialState EXCEPT !.size = differentialState.size + 1]
          /\ history' = [history EXCEPT !.numWrites = history.numWrites + 1]
          /\ pc' = [pc EXCEPT !["writer"] = "Write"]
-         /\ UNCHANGED << consolidatedState, mergedEnumerable, nextId >>
+         /\ UNCHANGED << consolidatedState, mergedEnumerable, nextId, 
+                         localEnumerable >>
 
 writer == Write
 
@@ -138,37 +148,53 @@ Checkpoint == /\ pc["checkpoint"] = "Checkpoint"
               /\ differentialState.size >= CheckpointAfterSize
               /\ pc' = [pc EXCEPT !["checkpoint"] = "PrepareCheckpoint1"]
               /\ UNCHANGED << differentialState, consolidatedState, 
-                              mergedEnumerable, history, nextId >>
+                              mergedEnumerable, history, nextId, 
+                              localEnumerable >>
 
 PrepareCheckpoint1 == /\ pc["checkpoint"] = "PrepareCheckpoint1"
                       /\ consolidatedState' = Append(consolidatedState, differentialState)
                       /\ pc' = [pc EXCEPT !["checkpoint"] = "PrepareCheckpoint2"]
                       /\ UNCHANGED << differentialState, mergedEnumerable, 
-                                      history, nextId >>
+                                      history, nextId, localEnumerable >>
 
 PrepareCheckpoint2 == /\ pc["checkpoint"] = "PrepareCheckpoint2"
                       /\ differentialState' = [id |-> nextId, size |-> 0]
                       /\ nextId' = nextId + 1
                       /\ pc' = [pc EXCEPT !["checkpoint"] = "PrepareCheckpointDone"]
                       /\ UNCHANGED << consolidatedState, mergedEnumerable, 
-                                      history >>
+                                      history, localEnumerable >>
 
 PrepareCheckpointDone == /\ pc["checkpoint"] = "PrepareCheckpointDone"
                          /\ TRUE
                          /\ pc' = [pc EXCEPT !["checkpoint"] = "Checkpoint"]
                          /\ UNCHANGED << differentialState, consolidatedState, 
-                                         mergedEnumerable, history, nextId >>
+                                         mergedEnumerable, history, nextId, 
+                                         localEnumerable >>
 
 checkpoint == Checkpoint \/ PrepareCheckpoint1 \/ PrepareCheckpoint2
                  \/ PrepareCheckpointDone
 
 Enumerable == /\ pc["enumerable"] = "Enumerable"
-              /\ mergedEnumerable' = Append(consolidatedState, differentialState)
-              /\ pc' = [pc EXCEPT !["enumerable"] = "Enumerable"]
-              /\ UNCHANGED << differentialState, consolidatedState, history, 
-                              nextId >>
+              /\ pc' = [pc EXCEPT !["enumerable"] = "Enumerable1"]
+              /\ UNCHANGED << differentialState, consolidatedState, 
+                              mergedEnumerable, history, nextId, 
+                              localEnumerable >>
 
-enumerable == Enumerable
+Enumerable1 == /\ pc["enumerable"] = "Enumerable1"
+               /\ localEnumerable' = Append(consolidatedState, differentialState)
+               /\ pc' = [pc EXCEPT !["enumerable"] = "Enumerable2"]
+               /\ UNCHANGED << differentialState, consolidatedState, 
+                               mergedEnumerable, history, nextId >>
+
+Enumerable2 == /\ pc["enumerable"] = "Enumerable2"
+               /\ mergedEnumerable' = (IF \E c \in DOMAIN consolidatedState: consolidatedState[c].id = differentialState.id
+                                       THEN consolidatedState
+                                       ELSE localEnumerable)
+               /\ pc' = [pc EXCEPT !["enumerable"] = "Enumerable"]
+               /\ UNCHANGED << differentialState, consolidatedState, history, 
+                               nextId, localEnumerable >>
+
+enumerable == Enumerable \/ Enumerable1 \/ Enumerable2
 
 Next == writer \/ checkpoint \/ enumerable
 
@@ -177,5 +203,5 @@ Spec == Init /\ [][Next]_vars
 \* END TRANSLATION - the hash of the generated TLA code (remove to silence divergence warnings): TLA-ba0adce1479b0526898fc49d3f7b6113
 =============================================================================
 \* Modification History
-\* Last modified Sat Aug 14 09:08:07 PDT 2021 by asnegi
+\* Last modified Sat Aug 14 09:33:41 PDT 2021 by asnegi
 \* Created Fri Jul 30 18:57:13 PDT 2021 by asnegi
