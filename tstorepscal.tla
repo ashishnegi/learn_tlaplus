@@ -45,8 +45,6 @@ end define;
 process writer = "writer"
 begin Write:
     while TRUE do
-        \* Thank you TLA+
-        \* await pc["checkpoint"] \notin { "PrepareCheckpoint1", "PrepareCheckpoint2" };
         differentialState := [differentialState EXCEPT !.size = differentialState.size + 1];
         history.numWrites := history.numWrites + 1;
     end while;
@@ -90,7 +88,7 @@ begin Enumerable:
 end process;
 end algorithm;*)
 
-\* BEGIN TRANSLATION - the hash of the PCal code: PCal-ba31dc15f4dfd2c855a56af691a48696 (chksum(pcal) = "dbce1629" /\ chksum(tla) = "c43bdf97") (chksum(pcal) = "dbce1629" /\ chksum(tla) = "c43bdf97") (chksum(pcal) = "f85ee517" /\ chksum(tla) = "a063f0c8") (chksum(pcal) = "ff8211d1" /\ chksum(tla) = "5147be61") (chksum(pcal) = "1fa04d02" /\ chksum(tla) = "c71e981d") (chksum(pcal) = "edb08381" /\ chksum(tla) = "d3317524") (chksum(pcal) = "3016893f" /\ chksum(tla) = "c481ad63") (chksum(pcal) = "34eb4454" /\ chksum(tla) = "90e8a869") (chksum(pcal) = "9de27dc9" /\ chksum(tla) = "5ceea770")
+\* BEGIN TRANSLATION - the hash of the PCal code: PCal-ba31dc15f4dfd2c855a56af691a48696 (chksum(pcal) = "dbce1629" /\ chksum(tla) = "c43bdf97") (chksum(pcal) = "dbce1629" /\ chksum(tla) = "c43bdf97") (chksum(pcal) = "f85ee517" /\ chksum(tla) = "a063f0c8") (chksum(pcal) = "ff8211d1" /\ chksum(tla) = "5147be61") (chksum(pcal) = "1fa04d02" /\ chksum(tla) = "c71e981d") (chksum(pcal) = "edb08381" /\ chksum(tla) = "d3317524") (chksum(pcal) = "3016893f" /\ chksum(tla) = "c481ad63") (chksum(pcal) = "34eb4454" /\ chksum(tla) = "90e8a869") (chksum(pcal) = "9de27dc9" /\ chksum(tla) = "5ceea770") (chksum(pcal) = "e46aa204" /\ chksum(tla) = "2db58197") (chksum(pcal) = "e46aa204" /\ chksum(tla) = "2db58197") (chksum(pcal) = "473576d1" /\ chksum(tla) = "b2670709") (chksum(pcal) = "f8c77581" /\ chksum(tla) = "af4ea2f5") (chksum(pcal) = "f8c77581" /\ chksum(tla) = "af4ea2f5") (chksum(pcal) = "e46aa204" /\ chksum(tla) = "2db58197")
 VARIABLES differentialState, consolidatedState, mergedEnumerable, history, 
           nextId, pc
 
@@ -217,5 +215,5 @@ Spec == Init /\ [][Next]_vars
 \* END TRANSLATION - the hash of the generated TLA code (remove to silence divergence warnings): TLA-ba0adce1479b0526898fc49d3f7b6113
 =============================================================================
 \* Modification History
-\* Last modified Sat Aug 14 09:38:25 PDT 2021 by asnegi
+\* Last modified Mon Aug 16 14:30:09 PDT 2021 by asnegi
 \* Created Fri Jul 30 18:57:13 PDT 2021 by asnegi
