@@ -2,12 +2,6 @@
 EXTENDS Integers, Sequences, TLC
 CONSTANT CheckpointAfterSize
 
-RECURSIVE Sum(_,_,_)
-Sum(sequ, op(_), acc) ==
-    IF sequ = <<>>
-    THEN acc
-    ELSE Sum(Tail(sequ), op, acc + op(Head(sequ)))
-
 (*--algorithm tstorepscal
 
 variables differentialState = [id |-> 0, size |-> 0],
@@ -197,5 +191,5 @@ Spec == Init /\ [][Next]_vars
 \* END TRANSLATION - the hash of the generated TLA code (remove to silence divergence warnings): TLA-ba0adce1479b0526898fc49d3f7b6113
 =============================================================================
 \* Modification History
-\* Last modified Mon Aug 16 14:15:11 PDT 2021 by asnegi
+\* Last modified Mon Aug 16 14:18:07 PDT 2021 by asnegi
 \* Created Fri Jul 30 18:57:13 PDT 2021 by asnegi
